@@ -4,7 +4,7 @@
 
 expense-tracker/
 ├── frontend/ (Next.js app)
-│   ├── app/
+│├── app/
 │   │   ├── api/ (API routes)
 │   │   ├── dashboard/
 │   │   ├── login/
