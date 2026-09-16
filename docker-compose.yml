@@ -54,6 +54,13 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: 3000
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-720}
+      COOKIE_SECURE: ${COOKIE_SECURE:-auto}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      APP_ORIGIN: ${APP_ORIGIN:-}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+      AUTH_RATE_LIMIT_WINDOW_MINUTES: ${AUTH_RATE_LIMIT_WINDOW_MINUTES:-15}
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,6 +82,32 @@ services:
     cpus: 0.75
     pids_limit: 100
     stop_grace_period: 15s
+    networks:
+      - spendime_internal
+
+  auth-test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      TEST_DATABASE_URL: ${TEST_DATABASE_URL:-}
+      DB_POOL_MAX: 3
+      SESSION_TTL_HOURS: 1
+      COOKIE_SECURE: never
+      TRUST_PROXY: 0
+      AUTH_RATE_LIMIT_MAX: 100
+      AUTH_RATE_LIMIT_WINDOW_MINUTES: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
+    mem_reservation: 128m
+    cpus: 1.0
+    pids_limit: 100
     networks:
       - spendime_internal
 

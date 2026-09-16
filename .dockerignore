@@ -9,3 +9,4 @@ coverage
 docs
 README.md
 npm-debug.log*
+dist

@@ -107,10 +107,20 @@ If the shell has not loaded `.env`, use the configured values explicitly:
 docker compose exec postgres psql -U spendime_admin -d spendime -c "\dt"
 ```
 
-Test the temporary application health endpoint:
+Test the application health endpoint:
 
 ```bash
 curl http://localhost:3000/health
+```
+
+The endpoint now verifies a real database query. Authentication configuration,
+cookie behavior, endpoints, and test commands are documented in
+`docs/authentication.md`.
+
+Run the authentication integration tests without resetting the database:
+
+```bash
+docker compose --profile test run --rm --build auth-test
 ```
 
 ## Completely reset the development database

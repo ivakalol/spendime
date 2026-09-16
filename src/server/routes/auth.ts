@@ -1,0 +1,54 @@
+import { Router, type Request } from 'express';
+import type pg from 'pg';
+import { revokeSession } from '../auth/repository.js';
+import { login, register } from '../auth/service.js';
+import {
+  clearSessionCookie,
+  hashSessionToken,
+  readSessionToken,
+  setSessionCookie,
+} from '../auth/session.js';
+import type { AppConfig } from '../config.js';
+import { requireAuthentication } from '../middleware/authenticate.js';
+import { requireSameOrigin } from '../middleware/origin.js';
+import { createRateLimiter } from '../middleware/rateLimit.js';
+import { loginSchema, registerSchema } from '../validation/auth.js';
+
+function requestMetadata(request: Request): { userAgent: string | null; ipAddress: string | null } {
+  return {
+    userAgent: request.get('user-agent')?.slice(0, 500) ?? null,
+    ipAddress: request.ip || request.socket.remoteAddress || null,
+  };
+}
+
+export function createAuthRouter(pool: pg.Pool, config: AppConfig): Router {
+  const router = Router();
+  const sameOrigin = requireSameOrigin(config);
+  const rateLimit = createRateLimiter(config.authRateLimitMax, config.authRateLimitWindowMs);
+
+  router.post('/register', sameOrigin, rateLimit, async (request, response) => {
+    const input = registerSchema.parse(request.body);
+    const result = await register(pool, config, input, requestMetadata(request));
+    setSessionCookie(request, response, result.sessionToken, config);
+    response.status(201).json({ data: { user: result.user } });
+  });
+
+  router.post('/login', sameOrigin, rateLimit, async (request, response) => {
+    const input = loginSchema.parse(request.body);
+    const result = await login(pool, config, input, requestMetadata(request));
+    setSessionCookie(request, response, result.sessionToken, config);
+    response.status(200).json({ data: { user: result.user } });
+  });
+
+  router.post('/logout', sameOrigin, async (request, response) => {
+    const token = readSessionToken(request);
+    if (token) await revokeSession(pool, hashSessionToken(token));
+    clearSessionCookie(request, response, config);
+    response.status(200).json({ data: { loggedOut: true } });
+  });
+
+  router.get('/me', requireAuthentication(pool), (request, response) => {
+    response.status(200).json({ data: { user: request.auth!.user } });
+  });
+  return router;
+}

@@ -1,16 +1,19 @@
-# spendime
-"A self-hosted expense tracking web application for students to log daily expenses, manage recurring purchases, and visualize spending statistics with monthly budget insights.
+# Spendime
 
+Spendime is a self-hosted personal-finance application focused on true financial
+utility: ordinary spending, amortized costs, recurring entries, liabilities,
+and asset growth.
 
-expense-tracker/
-├── frontend/ (Next.js app)
-│├── app/
-│   │   ├── api/ (API routes)
-│   │   ├── dashboard/
-│   │   ├── login/
-│   │   └── statistics/
-│   ├── components/
-│   ├── lib/ (database, auth configs)
-│   └── public/
-├── docker-compose.yml
-└── nginx/
+The current implementation includes the PostgreSQL schema, Raspberry Pi ARM64
+Compose deployment, and the Email/Password authentication API.
+
+```bash
+docker compose up -d --build
+docker compose --profile test run --rm --build auth-test
+```
+
+Documentation:
+
+- `docs/project-structure.md`
+- `docs/deployment.md`
+- `docs/authentication.md`

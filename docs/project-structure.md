@@ -28,7 +28,13 @@ spendime/
 |   |-- manifest.webmanifest
 |   `-- sw.js
 |-- src/
-|   |-- server.mjs             # Step 2 placeholder; replaced by Next.js later
+|   |-- server.ts
+|   |-- server/
+|   |   |-- auth/
+|   |   |-- db/
+|   |   |-- middleware/
+|   |   |-- routes/
+|   |   `-- validation/
 |   |-- app/
 |   |   |-- (auth)/
 |   |   |   |-- login/page.tsx
