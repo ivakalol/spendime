@@ -1,0 +1,7 @@
+# Container entrypoint scripts must retain Unix line endings when checked out on
+# Windows, otherwise the Linux containers cannot source them reliably.
+*.sh text eol=lf
+*.sql text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

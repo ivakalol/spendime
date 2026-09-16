@@ -17,7 +17,8 @@ spendime/
 |-- tsconfig.json
 |-- database/
 |   |-- init/
-|   |   `-- 001_schema.sql
+|   |   |-- 001_schema.sql
+|   |   `-- 002_configure_app_role.sh
 |   `-- migrations/
 |       `-- README.md
 |-- docs/
@@ -27,6 +28,7 @@ spendime/
 |   |-- manifest.webmanifest
 |   `-- sw.js
 |-- src/
+|   |-- server.mjs             # Step 2 placeholder; replaced by Next.js later
 |   |-- app/
 |   |   |-- (auth)/
 |   |   |   |-- login/page.tsx

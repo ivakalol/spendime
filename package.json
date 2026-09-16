@@ -1,0 +1,12 @@
+{
+  "name": "spendime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted personal finance PWA",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs"
+  }
+}
