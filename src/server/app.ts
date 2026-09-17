@@ -14,6 +14,35 @@ import { createLiabilitiesRouter } from './domains/liabilities/routes.js';
 import { createRecurringRulesRouter } from './domains/recurring/routes.js';
 import { createTransactionsRouter } from './domains/transactions/routes.js';
 
+export const CACHE_CONTROL = {
+  revalidate: 'no-cache, no-store, must-revalidate',
+  manifest: 'no-cache, must-revalidate',
+  immutable: 'public, max-age=31536000, immutable',
+  api: 'no-store',
+} as const;
+
+function setRevalidationHeaders(response: express.Response): void {
+  response.setHeader('Cache-Control', CACHE_CONTROL.revalidate);
+  response.setHeader('Pragma', 'no-cache');
+  response.setHeader('Expires', '0');
+}
+
+export function setClientStaticHeaders(response: express.Response, filePath: string): void {
+  const fileName = path.basename(filePath);
+  if (fileName === 'index.html' || fileName === 'sw.js' || fileName === 'sw-cache-migration.js') {
+    setRevalidationHeaders(response);
+    if (fileName === 'sw.js') response.setHeader('Service-Worker-Allowed', '/');
+    return;
+  }
+  if (fileName === 'manifest.webmanifest') {
+    response.setHeader('Cache-Control', CACHE_CONTROL.manifest);
+    return;
+  }
+  if (/^workbox-[A-Za-z0-9_-]+\.js$/.test(fileName)) {
+    response.setHeader('Cache-Control', CACHE_CONTROL.immutable);
+  }
+}
+
 export function createApp(pool: pg.Pool, config: AppConfig): Express {
   const app = express();
   if (config.trustProxy) app.set('trust proxy', 1);
@@ -23,7 +52,12 @@ export function createApp(pool: pg.Pool, config: AppConfig): Express {
 
   app.get('/health', async (_request, response) => {
     await pool.query('SELECT 1');
+    response.setHeader('Cache-Control', CACHE_CONTROL.api);
     response.status(200).json({ status: 'ok' });
+  });
+  app.use('/api', (_request, response, next) => {
+    response.setHeader('Cache-Control', CACHE_CONTROL.api);
+    next();
   });
   app.use('/api/auth', createAuthRouter(pool, config));
   app.use('/api/accounts', createAccountsRouter(pool));
@@ -40,11 +74,15 @@ export function createApp(pool: pg.Pool, config: AppConfig): Express {
       immutable: true,
       maxAge: '1y',
     }));
-    app.use(express.static(clientRoot, { index: false, maxAge: '1h' }));
+    app.use(express.static(clientRoot, {
+      index: false,
+      maxAge: '1h',
+      setHeaders: setClientStaticHeaders,
+    }));
     app.use((request, response, next) => {
       if (request.method === 'GET' && request.accepts('html') &&
           !request.path.startsWith('/api/') && request.path !== '/health') {
-        response.setHeader('Cache-Control', 'no-cache');
+        setRevalidationHeaders(response);
         response.sendFile(path.join(clientRoot, 'index.html'));
         return;
       }

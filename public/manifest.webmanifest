@@ -1,0 +1,17 @@
+{
+  "name": "Spendime Personal Finance",
+  "short_name": "Spendime",
+  "description": "Private, utility-aware personal finance tracking.",
+  "theme_color": "#102a2c",
+  "background_color": "#f5f3ec",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/",
+  "scope": "/",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

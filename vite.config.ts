@@ -8,34 +8,51 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       injectRegister: false,
-      includeAssets: ['icons/apple-touch-icon.png', 'brand-mark.svg'],
-      manifest: {
-        name: 'Spendime Personal Finance',
-        short_name: 'Spendime',
-        description: 'Private, utility-aware personal finance tracking.',
-        theme_color: '#102a2c',
-        background_color: '#f5f3ec',
-        display: 'standalone',
-        orientation: 'portrait-primary',
-        start_url: '/',
-        scope: '/',
-        categories: ['finance', 'productivity'],
-        icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-      },
+      includeAssets: [
+        'icons/apple-touch-icon.png',
+        'icons/icon-192.png',
+        'icons/icon-512.png',
+        'icons/icon-512-maskable.png',
+        'brand-mark.svg',
+      ],
+      // Kept as a public file so Workbox cannot turn the web manifest into a
+      // cache-first precache entry. Express gives it revalidation headers.
+      manifest: false,
       workbox: {
-        navigateFallbackDenylist: [/^\/api\//, /^\/health$/],
+        cacheId: 'spendime',
+        skipWaiting: true,
+        clientsClaim: true,
         cleanupOutdatedCaches: true,
+        navigationPreload: true,
+        importScripts: ['sw-cache-migration.js'],
+        // HTML and the manifest must be fetched/revalidated rather than
+        // becoming cache-first precache entries. Hashed assets stay precached.
+        globIgnores: ['**/index.html', '**/manifest.webmanifest', '**/sw-cache-migration.js'],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
             handler: 'NetworkOnly',
             method: 'GET',
+          },
+          {
+            urlPattern: ({ request, url }) =>
+              request.mode === 'navigate' &&
+              url.origin === self.location.origin &&
+              !url.pathname.startsWith('/api/') &&
+              url.pathname !== '/health',
+            handler: 'NetworkFirst',
+            method: 'GET',
+            options: {
+              cacheName: 'spendime-navigation-v2',
+              networkTimeoutSeconds: 5,
+              cacheableResponse: { statuses: [0, 200] },
+              expiration: {
+                maxEntries: 2,
+                maxAgeSeconds: 7 * 24 * 60 * 60,
+              },
+            },
           },
         ],
       },

@@ -123,6 +123,37 @@ The endpoint now verifies a real database query. Authentication configuration,
 cookie behavior, endpoints, and test commands are documented in
 `docs/authentication.md`.
 
+## Reverse-proxy and CDN cache rules
+
+Express assigns resource-specific cache headers in production:
+
+- `/`, `index.html`, `sw.js`, and `sw-cache-migration.js` must revalidate and
+  must not be stored as long-lived objects.
+- `manifest.webmanifest` must revalidate.
+- fingerprinted `/assets/*` and `workbox-<hash>.js` are immutable for one year.
+- `/api/*` and `/health` are `no-store` and remain outside PWA caches.
+
+The reverse proxy/CDN must respect these origin headers. In Cloudflare, create
+a highest-priority **Cache Rules → Bypass cache** rule for `/sw.js` and
+`/sw-cache-migration.js`; do not apply a `Cache Everything` or Edge TTL override
+to HTML, the manifest, or either worker script. After first deploying this cache
+migration, purge the existing cached `/sw.js` once at Cloudflare. This purges
+only the public worker response—not cookies or application data—and lets clients
+obtain the new updater immediately instead of waiting for an old edge TTL.
+
+Verify the deployed policy:
+
+```bash
+curl -I https://spendime.ivaylo.tech/
+curl -I https://spendime.ivaylo.tech/sw.js
+curl -I https://spendime.ivaylo.tech/manifest.webmanifest
+curl -I https://spendime.ivaylo.tech/assets/<current-hashed-file>.js
+```
+
+`sw.js` should never report a Cloudflare cache HIT. HTML and the worker should
+show revalidation/no-store intent, while the fingerprinted asset should show
+`max-age=31536000, immutable`.
+
 Run the authentication integration tests without resetting the database:
 
 ```bash

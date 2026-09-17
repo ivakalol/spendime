@@ -75,12 +75,21 @@ Apple standalone/status-bar metadata, and a 180px Apple touch icon. Layouts use
 all four CSS safe-area insets so sheets and bottom navigation clear notches,
 Dynamic Island regions, and the home indicator.
 
-Workbox precaches versioned static app assets. Every `/api/*` GET uses
-`NetworkOnly`; authenticated financial responses are not written to the service
-worker cache. Mutations are not queued: while offline the UI displays a banner,
-disables submission, and returns a clear error. A new worker raises a
-user-controlled **New version available — Update** prompt, so an unfinished
-form is never forcibly reloaded.
+Workbox precaches fingerprinted static assets, but deliberately excludes
+`index.html` and the manifest. Navigations use `NetworkFirst`: while online the
+latest HTML shell wins, while the last successful shell remains an offline
+fallback. Every `/api/*` GET uses `NetworkOnly`; authenticated financial
+responses are never written to the service-worker cache. Mutations are not
+queued: while offline the UI displays a banner, disables submission, and
+returns a clear error.
+
+The worker uses `skipWaiting`, `clientsClaim`, and automatic updates. At startup
+the client registers with `updateViaCache: 'none'` and requests one update
+check. An updated worker activates immediately and an already-controlled page
+reloads at most once, so Safari and installed iOS PWAs transition to the newest
+shell without an update button. The activation migration removes only legacy
+Spendime Workbox precaches; it does not access cookies, Web Storage, IndexedDB,
+or authentication state.
 
 ## Responsive and accessibility behavior
 

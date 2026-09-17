@@ -1,0 +1,35 @@
+name: Deploy Spendime
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  sync-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync main to deploy
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B deploy
+          git push origin deploy --force
+
+  deploy-to-pi:
+    needs: sync-deploy
+    runs-on: self-hosted
+
+    steps:
+      - name: Update Spendime
+        run: bash /home/ivko/update-spendime.sh
