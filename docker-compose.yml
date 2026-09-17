@@ -27,6 +27,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - ./database/init/002_configure_app_role.sh:/docker-entrypoint-initdb.d/002_configure_app_role.sh:ro
+      - ./database/init/003_financial_integrity.sql:/docker-entrypoint-initdb.d/003_financial_integrity.sql:ro
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:

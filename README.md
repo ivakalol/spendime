@@ -5,7 +5,8 @@ utility: ordinary spending, amortized costs, recurring entries, liabilities,
 and asset growth.
 
 The current implementation includes the PostgreSQL schema, Raspberry Pi ARM64
-Compose deployment, and the Email/Password authentication API.
+Compose deployment, Email/Password authentication, financial CRUD APIs, DCA
+contribution history, and timezone-aware dashboard aggregation.
 
 ```bash
 docker compose up -d --build
@@ -17,3 +18,4 @@ Documentation:
 - `docs/project-structure.md`
 - `docs/deployment.md`
 - `docs/authentication.md`
+- `docs/api.md`

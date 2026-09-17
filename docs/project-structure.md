@@ -18,7 +18,8 @@ spendime/
 |-- database/
 |   |-- init/
 |   |   |-- 001_schema.sql
-|   |   `-- 002_configure_app_role.sh
+|   |   |-- 002_configure_app_role.sh
+|   |   `-- 003_financial_integrity.sql
 |   `-- migrations/
 |       `-- README.md
 |-- docs/
@@ -32,6 +33,7 @@ spendime/
 |   |-- server/
 |   |   |-- auth/
 |   |   |-- db/
+|   |   |-- domains/
 |   |   |-- middleware/
 |   |   |-- routes/
 |   |   `-- validation/

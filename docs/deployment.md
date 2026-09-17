@@ -123,6 +123,28 @@ Run the authentication integration tests without resetting the database:
 docker compose --profile test run --rm --build auth-test
 ```
 
+## Apply additive migrations to an existing volume
+
+Fresh databases run every numbered file in `database/init` automatically. The
+official PostgreSQL entrypoint does not rerun initialization files for an
+existing volume. Before starting the Step 4 application against an existing
+database, apply its idempotent migration once:
+
+```bash
+docker compose up -d postgres
+docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1' < database/init/003_financial_integrity.sql
+docker compose up -d --build app
+```
+
+PowerShell equivalent:
+
+```powershell
+Get-Content -Raw database/init/003_financial_integrity.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
+docker compose up -d --build app
+```
+
+The migration is additive and safe to rerun. It does not reset the named volume.
+
 ## Completely reset the development database
 
 This permanently deletes every database record in the named volume and reruns
