@@ -14,13 +14,15 @@ RUN npm ci
 
 FROM dependencies AS build
 
-COPY tsconfig.json vitest.config.ts ./
+COPY tsconfig.json tsconfig.client.json vitest.config.ts vite.config.ts tailwind.config.ts postcss.config.cjs index.html ./
+COPY public ./public
 COPY src ./src
 RUN npm run build
 
 FROM dependencies AS test
 
-COPY tsconfig.json vitest.config.ts ./
+COPY tsconfig.json tsconfig.client.json vitest.config.ts vite.config.ts tailwind.config.ts postcss.config.cjs index.html ./
+COPY public ./public
 COPY src ./src
 COPY tests ./tests
 CMD ["npm", "test"]

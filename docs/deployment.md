@@ -3,7 +3,7 @@
 The Compose stack uses official multi-architecture images:
 
 - `postgres:16-bookworm` for PostgreSQL 16
-- `node:22-bookworm-slim` for the temporary Node application container
+- `node:22-bookworm-slim` for the Express API and React PWA application container
 
 Both images support Linux ARM64. PostgreSQL data is retained in the named
 volume `spendime_postgres_data`. The initialization script is mounted directly
@@ -112,6 +112,12 @@ Test the application health endpoint:
 ```bash
 curl http://localhost:3000/health
 ```
+
+Open `http://<raspberry-pi-lan-ip>:3000` to use the production PWA. On iPhone,
+open that HTTPS-served address in Safari, choose **Share → Add to Home Screen**,
+and launch Spendime from the new icon. Service workers and secure production
+cookies require HTTPS; place the app behind a trusted LAN reverse proxy with a
+certificate before treating it as a production installation.
 
 The endpoint now verifies a real database query. Authentication configuration,
 cookie behavior, endpoints, and test commands are documented in

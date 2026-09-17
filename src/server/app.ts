@@ -1,6 +1,8 @@
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 import type pg from 'pg';
+import path from 'node:path';
+import { existsSync } from 'node:fs';
 import type { AppConfig } from './config.js';
 import { errorHandler, notFoundHandler } from './errors.js';
 import { createAuthRouter } from './routes/auth.js';
@@ -31,6 +33,24 @@ export function createApp(pool: pg.Pool, config: AppConfig): Express {
   app.use('/api/liabilities', createLiabilitiesRouter(pool));
   app.use('/api/recurring-rules', createRecurringRulesRouter(pool));
   app.use('/api/dashboard', createDashboardRouter(pool));
+
+  const clientRoot = path.resolve(process.cwd(), 'dist/client');
+  if (config.nodeEnv === 'production' && existsSync(path.join(clientRoot, 'index.html'))) {
+    app.use('/assets', express.static(path.join(clientRoot, 'assets'), {
+      immutable: true,
+      maxAge: '1y',
+    }));
+    app.use(express.static(clientRoot, { index: false, maxAge: '1h' }));
+    app.use((request, response, next) => {
+      if (request.method === 'GET' && request.accepts('html') &&
+          !request.path.startsWith('/api/') && request.path !== '/health') {
+        response.setHeader('Cache-Control', 'no-cache');
+        response.sendFile(path.join(clientRoot, 'index.html'));
+        return;
+      }
+      next();
+    });
+  }
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;
