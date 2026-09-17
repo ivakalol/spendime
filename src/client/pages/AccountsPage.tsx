@@ -38,7 +38,7 @@ function AccountDialog({ value, open, onClose }: { value: Account | null | undef
     <Field label="Institution" hint="Optional"><Input value={form.institution ?? ''} onChange={(event) => setForm({ ...form, institution: event.target.value || null })} /></Field>
     <Field label="Color"><Input type="color" value={form.color ?? '#315f61'} onChange={(event) => setForm({ ...form, color: event.target.value })} /></Field>
     <FormError error={mutation.error || archive.error} />
-    <div className="flex flex-wrap gap-2">{value && <Button type="button" variant="danger" onClick={() => archive.mutate(value.id, { onSuccess: onClose })} disabled={archive.isPending}><Archive className="size-4" />Archive</Button>}<Button className="ml-auto" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save account'}</Button></div>
+    <div className="modal-actions">{value && <Button type="button" variant="danger" onClick={() => archive.mutate(value.id, { onSuccess: onClose })} disabled={archive.isPending}><Archive className="size-4" />Archive</Button>}<Button className={value ? 'ml-auto' : 'w-full'} disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save account'}</Button></div>
   </form></Modal>;
 }
 

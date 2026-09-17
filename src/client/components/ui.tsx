@@ -1,5 +1,6 @@
 import { AlertCircle, ChevronDown, LoaderCircle, RefreshCw, X } from 'lucide-react';
-import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../utils/cn';
 
 export function Button({ className, variant = 'primary', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }) {
@@ -16,6 +17,8 @@ export function ErrorState({ error, retry }: { error: unknown; retry?: () => voi
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) { return <Card className="surface-grid grid place-items-center gap-4 overflow-hidden py-14 text-center"><div className="grid size-14 place-items-center rounded-[1.25rem] bg-brand/[.08] text-brand shadow-sm ring-1 ring-brand/[.07]">{icon}</div><div><h2 className="font-semibold text-ink">{title}</h2><p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted">{description}</p></div>{action}</Card>; }
 export function Modal({ open, title, description, onClose, children }: { open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode }) {
   const panel = useRef<HTMLElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
   const closeRef = useRef(onClose); closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
@@ -32,11 +35,29 @@ export function Modal({ open, title, description, onClose, children }: { open: b
       }
     };
     document.addEventListener('keydown', keydown);
-    const originalOverflow = document.body.style.overflow;
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', keydown); document.body.style.overflow = originalOverflow; previous?.focus(); };
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', keydown);
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+      previous?.focus();
+    };
   }, [open]);
   if (!open) return null;
-  return <div className="animate-backdrop fixed inset-0 z-50 flex items-end justify-center bg-ink/45 p-0 backdrop-blur-[3px] sm:items-center sm:p-6" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}><section ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="dialog-title" className="animate-sheet overscroll-contain max-h-[94dvh] w-full overflow-y-auto rounded-t-[1.75rem] border border-white/50 bg-canvas px-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-20px_60px_rgba(18,42,43,.2)] outline-none sm:max-w-xl sm:rounded-3xl sm:p-6"><div className="mx-auto mb-3 h-1 w-10 rounded-full bg-brand/15 sm:hidden" aria-hidden="true" /><div className="sticky top-0 z-10 -mx-1 mb-5 flex items-start justify-between gap-4 bg-canvas/95 px-1 pb-2 pt-1 backdrop-blur"><div><h2 id="dialog-title" className="text-xl font-bold tracking-tight text-ink">{title}</h2>{description && <p className="mt-1 max-w-md text-sm leading-relaxed text-muted">{description}</p>}</div><Button variant="ghost" className="-mr-2 size-11 shrink-0 px-0" onClick={onClose} aria-label="Close dialog"><X className="size-5" /></Button></div>{children}</section></div>;
+  return createPortal(<div className="modal-layer animate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} className="modal-panel animate-sheet" data-modal-panel>
+      <div className="modal-header">
+        <div className="modal-handle" aria-hidden="true" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0"><h2 id={titleId} className="text-xl font-bold tracking-tight text-ink">{title}</h2>{description && <p id={descriptionId} className="mt-1 max-w-md text-sm leading-relaxed text-muted">{description}</p>}</div>
+          <Button variant="ghost" className="-mr-2 size-11 shrink-0 px-0" onClick={onClose} aria-label="Close dialog"><X className="size-5" /></Button>
+        </div>
+      </div>
+      <div className="modal-scroll" data-modal-scroll>{children}</div>
+    </section>
+  </div>, document.body);
 }
 export function FormError({ error }: { error: unknown }) { if (!error) return null; return <div role="alert" className="flex items-start gap-2 rounded-2xl border border-rose-200/60 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error instanceof Error ? error.message : 'The request failed.'}</div>; }
