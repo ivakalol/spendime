@@ -11,6 +11,7 @@ interface Bounds {
 export async function getDashboard(
   client:pg.PoolClient,userId:string,timeframe:Timeframe,anchor?:string,
 ){
+  
   const boundsResult=await client.query<Bounds>(`
     WITH settings AS (
       SELECT timezone,COALESCE($3::date,(now() AT TIME ZONE timezone)::date) anchor_date
@@ -86,7 +87,8 @@ export async function getDashboard(
   const accountBalances=(await client.query(`
     SELECT b.account_id AS "accountId",b.name,b.currency,a.opening_balance AS "openingBalance",
       b.current_balance AS "currentBalance" FROM account_balances b
-    JOIN accounts a ON a.id=b.account_id ORDER BY b.currency,b.name`)).rows;
+    JOIN accounts a ON a.id=b.account_id AND a.user_id=b.user_id
+    WHERE NOT a.is_archived ORDER BY b.currency,b.name`)).rows;
 
   const actualTrend=(await client.query(`
     SELECT currency,

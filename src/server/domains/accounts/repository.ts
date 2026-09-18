@@ -80,3 +80,31 @@ export async function archiveAccount(client: pg.PoolClient, id: string): Promise
   );
   return result.rowCount === 1;
 }
+
+export async function restoreAccount(client: pg.PoolClient, id: string): Promise<any | undefined> {
+  const result = await client.query<{ id: string }>(
+    'UPDATE accounts SET is_archived = false WHERE id = $1 AND is_archived RETURNING id',
+    [id],
+  );
+  return result.rows[0] ? getAccount(client, id) : undefined;
+}
+
+export async function permanentlyDeleteAccount(
+  client: pg.PoolClient,
+  id: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `DELETE FROM accounts a
+     WHERE a.id = $1 AND a.is_archived
+       AND NOT EXISTS (
+         SELECT 1 FROM transactions t
+         WHERE t.source_account_id = a.id OR t.destination_account_id = a.id
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM recurring_rules r
+         WHERE r.source_account_id = a.id OR r.destination_account_id = a.id
+       )`,
+    [id],
+  );
+  return result.rowCount === 1;
+}
