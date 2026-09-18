@@ -7,7 +7,8 @@ import { requireAuthentication } from '../../middleware/authenticate.js';
 import { inUserTransaction, pickFields, requireRow } from '../../routes/helpers.js';
 import { booleanQuerySchema, currencySchema, signedMoneySchema, uuidSchema } from '../../validation/common.js';
 import {
-  archiveAccount, createAccount, getAccount, listAccounts, updateAccount,
+  archiveAccount, createAccount, getAccount, listAccounts, permanentlyDeleteAccount,
+  restoreAccount, updateAccount,
   type AccountWrite,
 } from './repository.js';
 
@@ -64,6 +65,36 @@ export function createAccountsRouter(pool: pg.Pool): Router {
       });
       response.json({ data });
     } catch (error) { translateDatabaseError(error); }
+  });
+
+  router.post('/:id/restore', async (request, response) => {
+    const id = uuidSchema.parse(request.params.id);
+    const data = await inUserTransaction(pool, request, async (client) => {
+      const current = requireRow(await getAccount(client, id));
+      if (!current.isArchived) {
+        throw new ApiError(409, 'account_not_archived', 'Only archived accounts can be restored.');
+      }
+      return requireRow(await restoreAccount(client, id));
+    });
+    response.json({ data });
+  });
+
+  router.delete('/:id/permanent', async (request, response) => {
+    const id = uuidSchema.parse(request.params.id);
+    await inUserTransaction(pool, request, async (client) => {
+      const current = requireRow(await getAccount(client, id));
+      if (!current.isArchived) {
+        throw new ApiError(409, 'account_not_archived', 'Archive the account before deleting it permanently.');
+      }
+      if (!await permanentlyDeleteAccount(client, id)) {
+        throw new ApiError(
+          409,
+          'account_has_history',
+          'This account cannot be deleted because transactions or recurring rules still reference it.',
+        );
+      }
+    });
+    response.status(204).send();
   });
 
   router.delete('/:id', async (request, response) => {

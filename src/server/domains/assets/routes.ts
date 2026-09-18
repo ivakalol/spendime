@@ -68,6 +68,11 @@ const valuationSchema = z.object({
   }
 });
 
+const valuationUpdateSchema = z.object({
+  value: nonnegativeMoneySchema,
+  note: z.string().trim().max(2_000).nullable().optional().default(null),
+}).strict();
+
 export function createAssetsRouter(pool: pg.Pool): Router {
   const router = Router();
   router.use(requireAuthentication(pool));
@@ -214,6 +219,60 @@ export function createAssetsRouter(pool: pg.Pool): Router {
       )).rows[0];
     });
     response.status(201).json({ data });
+  });
+  router.patch('/:id/valuations/:valuationId', async (request, response) => {
+    const id = uuidSchema.parse(request.params.id);
+    const valuationId = uuidSchema.parse(request.params.valuationId);
+    const input = valuationUpdateSchema.parse(request.body);
+    const data = await inUserTransaction(pool, request, async (client) => {
+      const asset = requireRow(await getAsset(client, id));
+      if (asset.isArchived) {
+        throw new ApiError(409, 'asset_archived', 'Archived asset valuations cannot be changed.');
+      }
+      const valuation = requireRow((await client.query(
+        `SELECT id, value FROM asset_valuations
+         WHERE id=$1 AND asset_id=$2 FOR UPDATE`,
+        [valuationId, id],
+      )).rows[0]);
+      const latestId = (await client.query<{ id: string }>(
+        `SELECT id FROM asset_valuations
+         WHERE asset_id=$1 ORDER BY valued_at DESC,id DESC LIMIT 1`,
+        [id],
+      )).rows[0]?.id;
+
+      await client.query(
+        'UPDATE asset_valuations SET value=$3,note=$4 WHERE id=$1 AND asset_id=$2',
+        [valuationId, id, input.value, input.note],
+      );
+
+      if (latestId === valuation.id) {
+        const updatedAsset = await client.query(
+          `UPDATE assets SET current_value=$2
+           WHERE id=$1 AND current_value IS DISTINCT FROM $2::numeric`,
+          [id, input.value],
+        );
+        if (updatedAsset.rowCount === 1) {
+          // The current-value trigger records changes automatically. This endpoint is
+          // correcting the existing latest observation, so remove that duplicate row.
+          await client.query(
+            `DELETE FROM asset_valuations WHERE id=(
+               SELECT id FROM asset_valuations
+               WHERE asset_id=$1 AND id<>$2
+               ORDER BY created_at DESC,id DESC LIMIT 1
+             )`,
+            [id, valuationId],
+          );
+        }
+      }
+
+      return (await client.query(
+        `SELECT id,asset_id AS "assetId",value,valued_at AS "valuedAt",
+           note,created_at AS "createdAt"
+         FROM asset_valuations WHERE id=$1 AND asset_id=$2`,
+        [valuationId, id],
+      )).rows[0];
+    });
+    response.json({ data });
   });
   return router;
 }

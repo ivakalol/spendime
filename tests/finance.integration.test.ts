@@ -74,6 +74,15 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     await agentA.delete(`/api/accounts/${archiveId}`).expect(204);
     await agentA.get(`/api/accounts/${archiveId}`).expect(200)
       .expect(({ body }) => expect(body.data.isArchived).toBe(true));
+    await agentA.get('/api/dashboard?timeframe=daily').expect(200)
+      .expect(({ body }) => expect(body.data.accountBalances.some((account: any) => account.accountId === archiveId)).toBe(false));
+    await agentA.post(`/api/accounts/${archiveId}/restore`).expect(200)
+      .expect(({ body }) => expect(body.data.isArchived).toBe(false));
+    await agentA.get('/api/dashboard?timeframe=daily').expect(200)
+      .expect(({ body }) => expect(body.data.accountBalances.some((account: any) => account.accountId === archiveId)).toBe(true));
+    await agentA.delete(`/api/accounts/${archiveId}`).expect(204);
+    await agentA.delete(`/api/accounts/${archiveId}/permanent`).expect(204);
+    await agentA.get(`/api/accounts/${archiveId}`).expect(404);
   });
 
   it('supports default/custom categories and protects system categories', async () => {
@@ -123,6 +132,25 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     }).expect(404);
     await agentA.patch(`/api/transactions/${standardExpenseId}`).send({ description: 'Updated note' }).expect(200);
     await agentB.get(`/api/transactions/${standardExpenseId}`).expect(404);
+
+    const foodId = (await agentA.get('/api/categories').expect(200)).body.data
+      .find((item: any) => item.name === 'Food').id;
+    const editableId = (await agentA.post('/api/transactions').send({
+      kind: 'expense', sourceAccountId: bankId, categoryId, amount: '20.00',
+      currency: 'EUR', occurredAt,
+    }).expect(201)).body.data.id;
+    await agentA.patch(`/api/transactions/${editableId}`).send({
+      sourceAccountId: cashId, categoryId: foodId,
+    }).expect(200).expect(({ body }) => expect(body.data).toMatchObject({
+      sourceAccountId: cashId, categoryId: foodId,
+    }));
+    await agentA.get(`/api/accounts/${bankId}`).expect(200)
+      .expect(({ body }) => expect(body.data.currentBalance).toBe('3370.0100'));
+    await agentA.get(`/api/accounts/${cashId}`).expect(200)
+      .expect(({ body }) => expect(body.data.currentBalance).toBe('480.0000'));
+    await agentA.delete(`/api/transactions/${editableId}?reason=correction`).expect(204);
+    await agentA.get(`/api/accounts/${cashId}`).expect(200)
+      .expect(({ body }) => expect(body.data.currentBalance).toBe('500.0000'));
   });
 
   it('paginates, filters, and whitelist-sorts transaction history', async () => {
@@ -185,6 +213,16 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     await agentA.patch(`/api/assets/${appreciatingAssetId}`).send({ currentValue: '2350.00' }).expect(200);
     const after = await agentA.get(`/api/assets/${appreciatingAssetId}/valuations`).expect(200);
     expect(after.body.meta.total).toBe(before.body.meta.total + 2);
+    const latest = after.body.data[0];
+    await agentA.patch(`/api/assets/${appreciatingAssetId}/valuations/${latest.id}`).send({
+      value: '2360.00', note: 'Corrected valuation',
+    }).expect(200).expect(({ body }) => expect(body.data).toMatchObject({
+      id: latest.id, value: '2360.0000', note: 'Corrected valuation',
+    }));
+    const correctedAsset = await agentA.get(`/api/assets/${appreciatingAssetId}`).expect(200);
+    expect(correctedAsset.body.data.currentValue).toBe('2360.0000');
+    const correctedHistory = await agentA.get(`/api/assets/${appreciatingAssetId}/valuations`).expect(200);
+    expect(correctedHistory.body.meta.total).toBe(after.body.meta.total);
   });
 
   it('supports liability CRUD without inventing a repayment engine', async () => {
@@ -235,5 +273,36 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     expect(historical.body.data.voidedAt).toBeTruthy();
     const dashboard = await agentA.get('/api/dashboard?timeframe=daily&anchor=2026-01-02').expect(200);
     expect(dashboard.body.data.cashFlow.find((row: any) => row.currency === 'EUR').actualSpending).toBe('1200.0000');
+
+    const occurredAt = '2026-01-04T10:00:00.000Z';
+    const reversalCases = [
+      { kind: 'expense', sourceAccountId: bankId, categoryId },
+      { kind: 'income', destinationAccountId: cashId },
+      { kind: 'transfer', sourceAccountId: bankId, destinationAccountId: cashId },
+      { kind: 'asset_purchase', sourceAccountId: bankId, assetId: appreciatingAssetId },
+      { kind: 'asset_sale', destinationAccountId: cashId, assetId: appreciatingAssetId },
+      { kind: 'liability_drawdown', destinationAccountId: cashId, liabilityId },
+      { kind: 'liability_payment', sourceAccountId: bankId, liabilityId },
+      { kind: 'adjustment', sourceAccountId: bankId },
+    ];
+    for (const transaction of reversalCases) {
+      const beforeBank = (await agentA.get(`/api/accounts/${bankId}`).expect(200)).body.data.currentBalance;
+      const beforeCash = (await agentA.get(`/api/accounts/${cashId}`).expect(200)).body.data.currentBalance;
+      const beforePrincipal = transaction.kind === 'asset_purchase'
+        ? (await agentA.get(`/api/assets/${appreciatingAssetId}`).expect(200)).body.data.cumulativePrincipal
+        : null;
+      const id = (await agentA.post('/api/transactions').send({
+        ...transaction, amount: '7.00', currency: 'EUR', occurredAt,
+      }).expect(201)).body.data.id;
+      await agentA.delete(`/api/transactions/${id}?reason=reversal-test`).expect(204);
+      await agentA.get(`/api/accounts/${bankId}`).expect(200)
+        .expect(({ body }) => expect(body.data.currentBalance).toBe(beforeBank));
+      await agentA.get(`/api/accounts/${cashId}`).expect(200)
+        .expect(({ body }) => expect(body.data.currentBalance).toBe(beforeCash));
+      if (beforePrincipal) {
+        await agentA.get(`/api/assets/${appreciatingAssetId}`).expect(200)
+          .expect(({ body }) => expect(body.data.cumulativePrincipal).toBe(beforePrincipal));
+      }
+    }
   });
 });

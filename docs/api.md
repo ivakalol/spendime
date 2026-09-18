@@ -32,6 +32,8 @@ currencies; results are grouped by currency because Step 4 has no FX-rate model.
 - `POST /api/accounts`
 - `PATCH /api/accounts/:id`
 - `DELETE /api/accounts/:id` — archives; never removes history
+- `POST /api/accounts/:id/restore` — restores an archived account
+- `DELETE /api/accounts/:id/permanent` — permanently removes an archived account without history
 
 ```json
 {
@@ -45,7 +47,9 @@ currencies; results are grouped by currency because Step 4 has no FX-rate model.
 
 Kinds are `cash`, `checking`, `savings`, `credit`, `investment`, and `other`.
 Responses include exact `currentBalance` from the `account_balances` view.
-Currency is immutable, and archived accounts cannot receive new transactions.
+Currency is immutable, and archived accounts cannot receive new transactions or
+appear in dashboard account balances. Permanent deletion is restricted to archived
+accounts that are not referenced by transactions or recurring rules.
 
 ## Categories
 
@@ -121,6 +125,13 @@ A transfer uses one atomic row with owned source and destination accounts. It
 changes both account balances but is excluded from spending and income. Accounts
 must use the transaction currency; FX transfers are not yet modeled.
 
+Editing a transaction can change its category, amount, date, or participating
+account. Because balances are derived from active transaction rows, moving an
+expense from one account to another refunds the original account and debits the
+replacement account atomically. Deleting a transaction voids its audit record
+and reverses every account-balance effect for all transaction kinds. Linked asset
+purchase contributions are voided in the same database transaction.
+
 Asset purchases are also distinct from consumption. Creating an
 `asset_purchase` creates an asset contribution in the same database transaction.
 Voiding or editing that purchase updates its contribution and cost basis.
@@ -136,6 +147,7 @@ Voiding or editing that purchase updates its contribution and cost basis.
 - `POST /api/assets/:id/contributions`
 - `GET /api/assets/:id/valuations?limit=50&offset=0`
 - `POST /api/assets/:id/valuations`
+- `PATCH /api/assets/:id/valuations/:valuationId` — corrects a value or note
 
 Asset creation records the opening principal as the first contribution:
 
@@ -182,6 +194,8 @@ IRR, XIRR, time-weighted return, or money-weighted return.
 Changing `currentValue` uses the existing database valuation trigger exactly
 once. Posting the same value still records a dated observation. Historical-only
 valuations use `setAsCurrent: false` and require `valuedAt`.
+Correcting the latest valuation also updates the asset's current market value;
+correcting an older observation leaves the current value unchanged.
 
 Straight-line depreciation fields are stored and exposed, but Step 4 does not
 invent an automatic depreciation scheduler. The supplied/current market value
