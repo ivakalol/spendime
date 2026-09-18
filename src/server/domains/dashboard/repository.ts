@@ -11,6 +11,7 @@ interface Bounds {
 export async function getDashboard(
   client:pg.PoolClient,userId:string,timeframe:Timeframe,anchor?:string,
 ){
+  
   const boundsResult=await client.query<Bounds>(`
     WITH settings AS (
       SELECT timezone,COALESCE($3::date,(now() AT TIME ZONE timezone)::date) anchor_date
