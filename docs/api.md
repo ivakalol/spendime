@@ -140,6 +140,7 @@ Voiding or editing that purchase updates its contribution and cost basis.
 - `POST /api/assets/:id/contributions`
 - `GET /api/assets/:id/valuations?limit=50&offset=0`
 - `POST /api/assets/:id/valuations`
+- `PATCH /api/assets/:id/valuations/:valuationId` — corrects a value or note
 
 Asset creation records the opening principal as the first contribution:
 
@@ -186,6 +187,8 @@ IRR, XIRR, time-weighted return, or money-weighted return.
 Changing `currentValue` uses the existing database valuation trigger exactly
 once. Posting the same value still records a dated observation. Historical-only
 valuations use `setAsCurrent: false` and require `valuedAt`.
+Correcting the latest valuation also updates the asset's current market value;
+correcting an older observation leaves the current value unchanged.
 
 Straight-line depreciation fields are stored and exposed, but Step 4 does not
 invent an automatic depreciation scheduler. The supplied/current market value

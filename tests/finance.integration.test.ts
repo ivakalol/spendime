@@ -194,6 +194,16 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     await agentA.patch(`/api/assets/${appreciatingAssetId}`).send({ currentValue: '2350.00' }).expect(200);
     const after = await agentA.get(`/api/assets/${appreciatingAssetId}/valuations`).expect(200);
     expect(after.body.meta.total).toBe(before.body.meta.total + 2);
+    const latest = after.body.data[0];
+    await agentA.patch(`/api/assets/${appreciatingAssetId}/valuations/${latest.id}`).send({
+      value: '2360.00', note: 'Corrected valuation',
+    }).expect(200).expect(({ body }) => expect(body.data).toMatchObject({
+      id: latest.id, value: '2360.0000', note: 'Corrected valuation',
+    }));
+    const correctedAsset = await agentA.get(`/api/assets/${appreciatingAssetId}`).expect(200);
+    expect(correctedAsset.body.data.currentValue).toBe('2360.0000');
+    const correctedHistory = await agentA.get(`/api/assets/${appreciatingAssetId}/valuations`).expect(200);
+    expect(correctedHistory.body.meta.total).toBe(after.body.meta.total);
   });
 
   it('supports liability CRUD without inventing a repayment engine', async () => {
