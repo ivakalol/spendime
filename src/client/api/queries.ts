@@ -44,6 +44,7 @@ export const useCreateAsset = () => useDomainMutation<AssetInput, Asset>('/api/a
 export const useArchiveAsset = () => useDomainMutation<string, void>((id) => `/api/assets/${id}`, 'DELETE', [keys.assets, keys.dashboard]);
 export const useAddContribution = (id: string) => useDomainMutation<Record<string, unknown>, unknown>(`/api/assets/${id}/contributions`, 'POST', [keys.assets, keys.transactions, keys.accounts, keys.dashboard]);
 export const useAddValuation = (id: string) => useDomainMutation<Record<string, unknown>, AssetValuation>(`/api/assets/${id}/valuations`, 'POST', [keys.assets, keys.dashboard]);
+export const useUpdateAssetValuation = (assetId: string, valuationId: string) => useDomainMutation<{ value: string; note: string | null }, AssetValuation>(`/api/assets/${assetId}/valuations/${valuationId}`, 'PATCH', [keys.assets, keys.dashboard]);
 export const useCreateLiability = () => useDomainMutation<LiabilityInput, Liability>('/api/liabilities', 'POST', [keys.liabilities, keys.dashboard]);
 export const useUpdateLiability = (id: string) => useDomainMutation<LiabilityInput, Liability>(`/api/liabilities/${id}`, 'PATCH', [keys.liabilities, keys.dashboard]);
 export const useCancelLiability = () => useDomainMutation<string, void>((id) => `/api/liabilities/${id}`, 'DELETE', [keys.liabilities, keys.dashboard]);
