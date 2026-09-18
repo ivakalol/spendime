@@ -39,6 +39,7 @@ export const useCreateCategory = () => useDomainMutation<CategoryInput, Category
 export const useUpdateCategory = (id: string) => useDomainMutation<CategoryInput, Category>(`/api/categories/${id}`, 'PATCH', [keys.categories, keys.transactions, keys.dashboard]);
 export const useArchiveCategory = () => useDomainMutation<string, void>((id) => `/api/categories/${id}`, 'DELETE', [keys.categories, keys.transactions]);
 export const useCreateTransaction = () => useDomainMutation<TransactionInput, Transaction>('/api/transactions', 'POST', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
+export const useUpdateTransaction = (id: string) => useDomainMutation<TransactionInput, Transaction>(`/api/transactions/${id}`, 'PATCH', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
 export const useVoidTransaction = () => useDomainMutation<string, void>((id) => `/api/transactions/${id}`, 'DELETE', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
 export const useCreateAsset = () => useDomainMutation<AssetInput, Asset>('/api/assets', 'POST', [keys.assets, keys.dashboard]);
 export const useArchiveAsset = () => useDomainMutation<string, void>((id) => `/api/assets/${id}`, 'DELETE', [keys.assets, keys.dashboard]);
