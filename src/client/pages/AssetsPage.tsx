@@ -14,6 +14,7 @@ import {
 import { decimalToChartNumber } from '../utils/chartAdapter';
 import { browserTimezone, formatInTimezone, localInputNow, todayInTimezone, zonedInputToIso } from '../utils/dateTime';
 import { decimalSign, formatMoney, formatPercent } from '../utils/money';
+import { useLanguage } from '../i18n';
 
 export default function AssetsPage() {
   const query = useAssets(true);
@@ -28,13 +29,14 @@ export default function AssetsPage() {
 }
 
 export function AssetCard({ asset }: { asset: Asset }) {
+  const {t}=useLanguage();
   const sign = decimalSign(asset.absoluteReturn);
   return <Card className={`card-lift h-full overflow-hidden ${asset.isArchived ? 'opacity-50' : ''}`}>
     <div aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${asset.classification === 'appreciating' ? 'bg-emerald-500' : asset.classification === 'depreciating' ? 'bg-amber-500' : 'bg-blue-500'}`} />
     <div className="flex items-center justify-between"><span className={`grid size-11 place-items-center rounded-2xl ring-1 ring-inset ring-black/[.035] ${asset.classification === 'appreciating' ? 'bg-emerald-50 text-emerald-800' : asset.classification === 'depreciating' ? 'bg-amber-50 text-amber-900' : 'bg-blue-50 text-blue-800'}`}>{asset.classification === 'depreciating' ? <TrendingDown /> : <TrendingUp />}</span><Badge>{asset.isArchived ? 'Archived' : asset.classification}</Badge></div>
     <h2 className="mt-5 font-bold tracking-tight">{asset.name}</h2>
     <p className="money-value mt-1 text-2xl font-bold">{formatMoney(asset.currentValue, asset.currency)}</p>
-    <p className="mt-3 text-xs text-muted">Contributed {formatMoney(asset.cumulativePrincipal, asset.currency)}</p>
+    <p className="mt-3 text-xs text-muted">{t('Contributed')} {formatMoney(asset.cumulativePrincipal, asset.currency)}</p>
     <p className={`mt-0.5 text-sm font-semibold ${sign > 0 ? 'text-emerald-800' : sign < 0 ? 'text-rose-800' : 'text-muted'}`}>{sign > 0 ? '▲' : sign < 0 ? '▼' : '—'} {formatMoney(asset.absoluteReturn, asset.currency)} · {formatPercent(asset.percentageReturn)}</p>
   </Card>;
 }
@@ -63,6 +65,7 @@ function CreateAsset({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+  const {t}=useLanguage();
   const contributions = useAssetContributions(asset.id);
   const valuations = useAssetValuations(asset.id);
   const accounts = useAccounts(false);
@@ -94,13 +97,13 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
     if (next === 'value') { chooseValuation(null); setWhen(localInputNow(timezone)); }
   };
 
-  return <Modal open title={latest.name} description={`${latest.classification} · simple return on cumulative contributed principal`} onClose={onClose}>
-    <div className="grid grid-cols-3 gap-2">{(['overview', 'contribute', 'value'] as const).map((item) => <button key={item} onClick={() => changeTab(item)} className={`min-h-10 rounded-xl text-xs font-semibold capitalize ${tab === item ? 'bg-brand text-white' : 'bg-white text-muted'}`}>{item === 'value' ? 'Valuation' : item}</button>)}</div>
+  return <Modal open title={latest.name} description={`${t(latest.classification)} · ${t('simple return on cumulative contributed principal')}`} onClose={onClose}>
+    <div className="grid grid-cols-3 gap-2">{(['overview', 'contribute', 'value'] as const).map((item) => <button key={item} onClick={() => changeTab(item)} className={`min-h-10 rounded-xl text-xs font-semibold capitalize ${tab === item ? 'bg-brand text-white' : 'bg-white text-muted'}`}>{t(item === 'value' ? 'Valuation' : item === 'overview' ? 'Overview' : 'Contribute')}</button>)}</div>
 
     {tab === 'overview' && <div className="mt-5 grid gap-4">
       <div className="grid grid-cols-2 gap-3"><Summary label="Contributed principal" value={formatMoney(latest.cumulativePrincipal, latest.currency)} /><Summary label="Market value" value={formatMoney(latest.currentValue, latest.currency)} /><Summary label="Absolute gain/loss" value={formatMoney(latest.absoluteReturn, latest.currency)} /><Summary label="Simple return" value={formatPercent(latest.percentageReturn)} /></div>
-      {valuationChart.length > 0 && <Card><h3 className="text-sm font-semibold">Valuation history</h3><div className="mt-3 h-40"><ResponsiveContainer><AreaChart data={valuationChart}><XAxis dataKey="date" tick={{ fontSize: 10 }} /><Tooltip formatter={(_, __, entry) => formatMoney(String(entry.payload.exact), latest.currency)} /><Area dataKey="value" stroke="#27846f" fill="#27846f33" /></AreaChart></ResponsiveContainer></div></Card>}
-      <div><h3 className="mb-2 text-sm font-semibold">Contribution history</h3>{contributions.isPending ? <LoadingState /> : <div className="grid gap-2">{contributions.data?.data.map((item) => <div key={item.id} className={`flex justify-between rounded-2xl bg-white p-3 ${item.voidedAt ? 'opacity-50' : ''}`}><div><p className="text-sm font-semibold">{formatMoney(item.amount, item.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.contributedAt, timezone)}</p></div><Badge tone={item.transactionId ? 'info' : 'neutral'}>{item.transactionId ? 'Account purchase' : 'Principal only'}</Badge></div>)}</div>}</div>
+      {valuationChart.length > 0 && <Card><h3 className="text-sm font-semibold">{t('Valuation history')}</h3><div className="mt-3 h-40"><ResponsiveContainer><AreaChart data={valuationChart}><XAxis dataKey="date" tick={{ fontSize: 10 }} /><Tooltip formatter={(_, __, entry) => formatMoney(String(entry.payload.exact), latest.currency)} /><Area dataKey="value" stroke="#27846f" fill="#27846f33" /></AreaChart></ResponsiveContainer></div></Card>}
+      <div><h3 className="mb-2 text-sm font-semibold">{t('Contribution history')}</h3>{contributions.isPending ? <LoadingState /> : <div className="grid gap-2">{contributions.data?.data.map((item) => <div key={item.id} className={`flex justify-between rounded-2xl bg-white p-3 ${item.voidedAt ? 'opacity-50' : ''}`}><div><p className="text-sm font-semibold">{formatMoney(item.amount, item.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.contributedAt, timezone)}</p></div><Badge tone={item.transactionId ? 'info' : 'neutral'}>{item.transactionId ? 'Account purchase' : 'Principal only'}</Badge></div>)}</div>}</div>
       {!latest.isArchived && <Button variant="danger" onClick={() => archive.mutate(latest.id, { onSuccess: onClose })}><Archive className="size-4" />Archive asset</Button>}
     </div>}
 
@@ -108,25 +111,26 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
       <Field label="Contribution"><Input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required /></Field>
       <Field label="Source account" hint="Optional. Selecting one also creates an asset-purchase cash transaction."><Select value={account} onChange={(event) => setAccount(event.target.value)}><option value="">Principal only — no cash transaction</option>{accounts.data?.filter((item) => item.currency === latest.currency).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
       <Field label="Current market value" hint="Optional after this contribution"><Input inputMode="decimal" value={current} onChange={(event) => setCurrent(event.target.value)} /></Field>
-      <Field label={`Contributed at · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
+      <Field label={`${t('Contributed at')} · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
       <Field label="Note"><Input value={note} onChange={(event) => setNote(event.target.value)} /></Field>
       <FormError error={addContribution.error} /><Button disabled={addContribution.isPending}>{addContribution.isPending ? 'Adding…' : 'Add contribution'}</Button>
     </form>}
 
     {tab === 'value' && <div className="mt-5 grid gap-5">
       <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); if (editingValuation) { updateValuation.mutate({ value, note: note || null }, { onSuccess: () => chooseValuation(null) }); } else { addValuation.mutate({ value, valuedAt: zonedInputToIso(when, timezone), note: note || null, setAsCurrent: true }, { onSuccess: () => setTab('overview') }); } }}>
-        {editingValuation && <div className="flex items-center justify-between rounded-2xl bg-brand/[.06] px-3 py-2 text-sm"><span>Editing {formatInTimezone(editingValuation.valuedAt, timezone)}</span><Button type="button" variant="ghost" className="size-9 min-h-9 px-0" onClick={() => chooseValuation(null)} aria-label="Cancel valuation edit"><X className="size-4" /></Button></div>}
+        {editingValuation && <div className="flex items-center justify-between rounded-2xl bg-brand/[.06] px-3 py-2 text-sm"><span>{t('Editing')} {formatInTimezone(editingValuation.valuedAt, timezone)}</span><Button type="button" variant="ghost" className="size-9 min-h-9 px-0" onClick={() => chooseValuation(null)} aria-label={t('Cancel valuation edit')}><X className="size-4" /></Button></div>}
         <Field label={editingValuation ? 'Valuation' : 'Current market value'}><Input inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} required /></Field>
-        {!editingValuation && <Field label={`Valued at · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>}
+        {!editingValuation && <Field label={`${t('Valued at')} · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>}
         <Field label="Note"><Input value={note} onChange={(event) => setNote(event.target.value)} /></Field>
         <FormError error={editingValuation ? updateValuation.error : addValuation.error} />
         <Button disabled={editingValuation ? updateValuation.isPending : addValuation.isPending}><ArrowDownUp className="size-4" />{editingValuation ? (updateValuation.isPending ? 'Saving…' : 'Save valuation') : (addValuation.isPending ? 'Saving…' : 'Record valuation')}</Button>
       </form>
-      <div><h3 className="mb-2 text-sm font-semibold">Valuation history</h3><div className="grid gap-2">{valuations.data?.data.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3"><div><p className="money-value text-sm font-semibold">{formatMoney(item.value, latest.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.valuedAt, timezone)}{item.note ? ` · ${item.note}` : ''}</p></div>{!latest.isArchived && <Button type="button" variant="ghost" className="size-10 min-h-10 shrink-0 px-0" onClick={() => chooseValuation(item)} aria-label={`Edit valuation from ${formatInTimezone(item.valuedAt, timezone)}`}><Pencil className="size-4" /></Button>}</div>)}</div></div>
+      <div><h3 className="mb-2 text-sm font-semibold">{t('Valuation history')}</h3><div className="grid gap-2">{valuations.data?.data.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3"><div><p className="money-value text-sm font-semibold">{formatMoney(item.value, latest.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.valuedAt, timezone)}{item.note ? ` · ${item.note}` : ''}</p></div>{!latest.isArchived && <Button type="button" variant="ghost" className="size-10 min-h-10 shrink-0 px-0" onClick={() => chooseValuation(item)} aria-label={t('Edit valuation from {date}', {date: formatInTimezone(item.valuedAt, timezone)})}><Pencil className="size-4" /></Button>}</div>)}</div></div>
     </div>}
   </Modal>;
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-2xl border border-brand/[.06] bg-surface p-3.5 shadow-sm"><p className="text-xs text-muted">{label}</p><p className="money-value mt-1 font-bold">{value}</p></div>;
+  const {t}=useLanguage();
+  return <div className="rounded-2xl border border-brand/[.06] bg-surface p-3.5 shadow-sm"><p className="text-xs text-muted">{t(label)}</p><p className="money-value mt-1 font-bold">{value}</p></div>;
 }

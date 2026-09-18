@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { useAccounts, useAssets, useCategories, useCreateTransaction, useLiabilities, useMe } from '../api/queries';
 import type { TransactionInput, TransactionKind } from '../api/types';
 import { Button, Field, FormError, Input, Modal, Select } from '../components/ui';
+import { useLanguage } from '../i18n';
 import { browserTimezone, localInputNow, zonedInputToIso } from '../utils/dateTime';
 
 const modes: Array<{ value: TransactionKind | 'amortized'; label: string; icon: typeof ArrowUpRight }> = [
@@ -12,6 +13,7 @@ const modes: Array<{ value: TransactionKind | 'amortized'; label: string; icon: 
 ];
 
 export function QuickAdd({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const {t}=useLanguage();
   const accounts = useAccounts(false);
   const categories = useCategories(false);
   const assets = useAssets(false);
@@ -64,7 +66,7 @@ export function QuickAdd({ open, onClose }: { open: boolean; onClose: () => void
 
   return <Modal open={open} onClose={onClose} title="Quick add" description="Record a movement in a few taps. Saved backend totals remain authoritative.">
     <form className="grid gap-5" onSubmit={submit}>
-      <div className="scroll-fade-x no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-6 sm:overflow-visible" role="radiogroup" aria-label="Entry type">{modes.map((item) => <button key={item.value} type="button" role="radio" aria-checked={mode === item.value} onClick={() => setMode(item.value)} className={`control-press grid min-h-[4.25rem] min-w-[5.35rem] snap-start place-items-center gap-1 rounded-2xl px-2 text-[11px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:scale-[.97] sm:min-w-0 ${mode === item.value ? 'bg-brand text-white shadow-[0_8px_20px_rgba(16,42,44,.18)]' : 'bg-surface text-muted ring-1 ring-inset ring-brand/10 hover:bg-brand/[.055] hover:text-ink'}`}><item.icon className="size-[1.1rem]" />{item.label}</button>)}</div>
+      <div className="scroll-fade-x no-scrollbar -mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1 sm:grid sm:grid-cols-6 sm:overflow-visible" role="radiogroup" aria-label={t('Entry type')}>{modes.map((item) => <button key={item.value} type="button" role="radio" aria-checked={mode === item.value} onClick={() => setMode(item.value)} className={`control-press grid min-h-[4.25rem] min-w-[5.35rem] snap-start place-items-center gap-1 rounded-2xl px-2 text-[11px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:scale-[.97] sm:min-w-0 ${mode === item.value ? 'bg-brand text-white shadow-[0_8px_20px_rgba(16,42,44,.18)]' : 'bg-surface text-muted ring-1 ring-inset ring-brand/10 hover:bg-brand/[.055] hover:text-ink'}`}><item.icon className="size-[1.1rem]" />{t(item.label)}</button>)}</div>
       <Field label="Amount"><div className="relative"><Input className="money-value h-16 pr-16 text-3xl font-bold tracking-tight" inputMode="decimal" pattern="\d+(\.\d{1,4})?" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} required /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded-lg bg-brand/[.06] px-2 py-1 text-xs font-bold text-muted">{currency}</span></div></Field>
       {needsSource && <Field label={mode === 'transfer' ? 'From account' : 'Pay from'}><Select value={source} onChange={(event) => setSource(event.target.value)} required><option value="">Choose account</option>{activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</Select></Field>}
       {needsDestination && <Field label={mode === 'transfer' ? 'To account' : 'Receive into'} error={invalidTransfer ? 'Choose two different accounts.' : undefined}><Select value={destination} onChange={(event) => setDestination(event.target.value)} required><option value="">Choose account</option>{activeAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</Select></Field>}
@@ -72,9 +74,9 @@ export function QuickAdd({ open, onClose }: { open: boolean; onClose: () => void
       {mode === 'liability_payment' && <Field label="Liability"><Select value={liability} onChange={(event) => setLiability(event.target.value)} required><option value="">Choose liability</option>{liabilities.data?.filter((item) => item.currency === currency && item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>}
       {['expense', 'income', 'amortized', 'asset_purchase', 'liability_payment'].includes(mode) && <Field label="Category" hint="Optional"><Select value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Uncategorized</option>{categoryOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>}
       {mode === 'amortized' && <div className="rounded-2xl border border-amber-200/60 bg-amber-50/80 p-4 shadow-sm"><Field label="Expected use (days)" hint="The full price leaves your account today. Utility impact is spread across this inclusive period; the saved backend result is final."><Input type="number" inputMode="numeric" min="1" max="36500" value={days} onChange={(event) => setDays(event.target.value)} required /></Field></div>}
-      <Field label={`Date & time · ${me.data?.timezone ?? ''}`} hint={me.data?.timezone !== browserTimezone() ? `Your device is in ${browserTimezone()}; this entry uses your profile timezone.` : undefined}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
+      <Field label={`${t('Date & time')} · ${me.data?.timezone ?? ''}`} hint={me.data?.timezone !== browserTimezone() ? t('Your device is in {timezone}; this entry uses your profile timezone.', {timezone: browserTimezone()}) : undefined}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
       <Field label="Note" hint="Optional"><Input value={description} maxLength={2000} onChange={(event) => setDescription(event.target.value)} placeholder="What was this for?" /></Field>
-      {activeAccounts.length === 0 && <p className="rounded-2xl border border-amber-200/60 bg-amber-50 p-3 text-sm text-amber-900">Create a money account before adding an entry.</p>}
+      {activeAccounts.length === 0 && <p className="rounded-2xl border border-amber-200/60 bg-amber-50 p-3 text-sm text-amber-900">{t('Create a money account before adding an entry.')}</p>}
       <FormError error={mutation.error} />
       <div className="modal-actions"><Button type="button" variant="secondary" className="flex-1" onClick={onClose}>Cancel</Button><Button type="submit" className="flex-1" disabled={mutation.isPending || !navigator.onLine || activeAccounts.length === 0 || invalidTransfer}>{mutation.isPending ? 'Saving…' : !navigator.onLine ? 'Offline' : 'Save entry'}</Button></div>
     </form>

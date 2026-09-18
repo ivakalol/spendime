@@ -4,10 +4,12 @@ import { useAccounts, useArchiveAccount, useCreateAccount, usePermanentlyDeleteA
 import type { Account, AccountInput } from '../api/types';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, FormError, Input, LoadingState, Modal, PageHeader, Select } from '../components/ui';
 import { formatMoney } from '../utils/money';
+import { useLanguage } from '../i18n';
 
 const blank: AccountInput = { name: '', kind: 'checking', currency: 'EUR', openingBalance: '0', institution: null, color: '#315f61', icon: null };
 
 export default function AccountsPage() {
+  const {t}=useLanguage();
   const query = useAccounts(true);
   const [editing, setEditing] = useState<Account | null | undefined>();
   return <>
@@ -16,7 +18,7 @@ export default function AccountsPage() {
       <div aria-hidden="true" className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: item.color ?? '#315f61' }} />
       <div className="mb-5 flex items-start justify-between"><span className="grid size-11 place-items-center rounded-2xl text-white shadow-sm ring-1 ring-black/5" style={{ backgroundColor: item.color ?? '#315f61' }}><WalletCards className="size-5" /></span>{item.isArchived ? <Badge>Archived</Badge> : <Badge tone="info">{item.kind}</Badge>}</div>
       <h2 className="font-bold tracking-tight">{item.name}</h2><p className="mt-0.5 text-sm text-muted">{item.institution || item.currency}</p>
-      <p className="money-value mt-5 text-2xl font-bold">{formatMoney(item.currentBalance, item.currency)}</p><p className="mt-1 text-xs text-muted">Opening {formatMoney(item.openingBalance, item.currency)}</p>
+      <p className="money-value mt-5 text-2xl font-bold">{formatMoney(item.currentBalance, item.currency)}</p><p className="mt-1 text-xs text-muted">{t('Opening')} {formatMoney(item.openingBalance, item.currency)}</p>
       {item.isArchived ? <ArchivedAccountActions account={item} /> : <Button variant="ghost" className="mt-4 -ml-2 px-2" onClick={() => setEditing(item)}><Pencil className="size-4" />Manage</Button>}
     </Card>)}</div>}
     <AccountDialog value={editing} open={editing !== undefined} onClose={() => setEditing(undefined)} />
@@ -24,10 +26,11 @@ export default function AccountsPage() {
 }
 
 function ArchivedAccountActions({ account }: { account: Account }) {
+  const {t}=useLanguage();
   const restore = useRestoreAccount(account.id);
   const remove = usePermanentlyDeleteAccount();
   const permanentlyDelete = () => {
-    if (confirm(`Permanently delete ${account.name}? This cannot be undone.`)) remove.mutate(account.id);
+    if (confirm(t('Permanently delete {name}? This cannot be undone.', {name: account.name}))) remove.mutate(account.id);
   };
   return <div className="mt-4 grid gap-2">
     <div className="flex flex-wrap gap-2">

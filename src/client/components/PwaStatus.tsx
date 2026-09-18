@@ -1,7 +1,9 @@
 import { CloudOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useLanguage } from '../i18n';
 
 export function PwaStatus() {
+  const {t}=useLanguage();
   const [online, setOnline] = useState(navigator.onLine);
 
   useEffect(() => {
@@ -38,6 +40,6 @@ export function PwaStatus() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
   return <>
-    {!online && <div role="status" className="app-toast animate-enter fixed inset-x-3 top-[max(.75rem,env(safe-area-inset-top))] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-white/10 bg-amber-950/95 px-4 py-3 text-sm text-white shadow-2xl backdrop-blur"><CloudOff className="size-5 shrink-0" /><span><strong>Offline.</strong> Loaded screens remain available, but financial changes are disabled.</span></div>}
+    {!online && <div role="status" className="app-toast animate-enter fixed inset-x-3 top-[max(.75rem,env(safe-area-inset-top))] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-white/10 bg-amber-950/95 px-4 py-3 text-sm text-white shadow-2xl backdrop-blur"><CloudOff className="size-5 shrink-0" /><span><strong>{t('Offline.')}</strong> {t('Loaded screens remain available, but financial changes are disabled.')}</span></div>}
   </>;
 }
