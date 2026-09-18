@@ -32,6 +32,8 @@ currencies; results are grouped by currency because Step 4 has no FX-rate model.
 - `POST /api/accounts`
 - `PATCH /api/accounts/:id`
 - `DELETE /api/accounts/:id` — archives; never removes history
+- `POST /api/accounts/:id/restore` — restores an archived account
+- `DELETE /api/accounts/:id/permanent` — permanently removes an archived account without history
 
 ```json
 {
@@ -45,7 +47,9 @@ currencies; results are grouped by currency because Step 4 has no FX-rate model.
 
 Kinds are `cash`, `checking`, `savings`, `credit`, `investment`, and `other`.
 Responses include exact `currentBalance` from the `account_balances` view.
-Currency is immutable, and archived accounts cannot receive new transactions.
+Currency is immutable, and archived accounts cannot receive new transactions or
+appear in dashboard account balances. Permanent deletion is restricted to archived
+accounts that are not referenced by transactions or recurring rules.
 
 ## Categories
 

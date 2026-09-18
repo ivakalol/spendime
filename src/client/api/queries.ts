@@ -33,6 +33,8 @@ function useDomainMutation<TInput, TResult>(path: string | ((input: TInput) => s
 export const useCreateAccount = () => useDomainMutation<AccountInput, Account>('/api/accounts', 'POST', [keys.accounts, keys.dashboard]);
 export const useUpdateAccount = (id: string) => useDomainMutation<AccountInput, Account>(`/api/accounts/${id}`, 'PATCH', [keys.accounts, keys.dashboard]);
 export const useArchiveAccount = () => useDomainMutation<string, void>((id) => `/api/accounts/${id}`, 'DELETE', [keys.accounts, keys.dashboard]);
+export const useRestoreAccount = (id: string) => useDomainMutation<void, Account>(`/api/accounts/${id}/restore`, 'POST', [keys.accounts, keys.dashboard]);
+export const usePermanentlyDeleteAccount = () => useDomainMutation<string, void>((id) => `/api/accounts/${id}/permanent`, 'DELETE', [keys.accounts, keys.dashboard]);
 export const useCreateCategory = () => useDomainMutation<CategoryInput, Category>('/api/categories', 'POST', [keys.categories]);
 export const useUpdateCategory = (id: string) => useDomainMutation<CategoryInput, Category>(`/api/categories/${id}`, 'PATCH', [keys.categories, keys.transactions, keys.dashboard]);
 export const useArchiveCategory = () => useDomainMutation<string, void>((id) => `/api/categories/${id}`, 'DELETE', [keys.categories, keys.transactions]);

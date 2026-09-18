@@ -74,6 +74,15 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     await agentA.delete(`/api/accounts/${archiveId}`).expect(204);
     await agentA.get(`/api/accounts/${archiveId}`).expect(200)
       .expect(({ body }) => expect(body.data.isArchived).toBe(true));
+    await agentA.get('/api/dashboard?timeframe=daily').expect(200)
+      .expect(({ body }) => expect(body.data.accountBalances.some((account: any) => account.accountId === archiveId)).toBe(false));
+    await agentA.post(`/api/accounts/${archiveId}/restore`).expect(200)
+      .expect(({ body }) => expect(body.data.isArchived).toBe(false));
+    await agentA.get('/api/dashboard?timeframe=daily').expect(200)
+      .expect(({ body }) => expect(body.data.accountBalances.some((account: any) => account.accountId === archiveId)).toBe(true));
+    await agentA.delete(`/api/accounts/${archiveId}`).expect(204);
+    await agentA.delete(`/api/accounts/${archiveId}/permanent`).expect(204);
+    await agentA.get(`/api/accounts/${archiveId}`).expect(404);
   });
 
   it('supports default/custom categories and protects system categories', async () => {

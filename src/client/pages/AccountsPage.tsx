@@ -1,6 +1,6 @@
-import { Archive, Pencil, Plus, WalletCards } from 'lucide-react';
+import { Archive, Pencil, Plus, RotateCcw, Trash2, WalletCards } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
-import { useAccounts, useArchiveAccount, useCreateAccount, useUpdateAccount } from '../api/queries';
+import { useAccounts, useArchiveAccount, useCreateAccount, usePermanentlyDeleteAccount, useRestoreAccount, useUpdateAccount } from '../api/queries';
 import type { Account, AccountInput } from '../api/types';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, FormError, Input, LoadingState, Modal, PageHeader, Select } from '../components/ui';
 import { formatMoney } from '../utils/money';
@@ -11,16 +11,31 @@ export default function AccountsPage() {
   const query = useAccounts(true);
   const [editing, setEditing] = useState<Account | null | undefined>();
   return <>
-    <PageHeader eyebrow="Liquid funds" title="Money accounts" description="Where your spendable money lives. Archived accounts stay attached to their history." action={<Button onClick={() => setEditing(null)}><Plus className="size-4" />New</Button>} />
+    <PageHeader eyebrow="Liquid funds" title="Money accounts" description="Where your spendable money lives. Archived accounts stay out of balances and can be restored or removed." action={<Button onClick={() => setEditing(null)}><Plus className="size-4" />New</Button>} />
     {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.length === 0 ? <EmptyState icon={<WalletCards />} title="No accounts yet" description="Add cash, a card, or savings account to start recording money movement." action={<Button onClick={() => setEditing(null)}>Create account</Button>} /> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{query.data.map((item) => <Card key={item.id} className={`card-lift overflow-hidden ${item.isArchived ? 'opacity-55' : ''}`}>
       <div aria-hidden="true" className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: item.color ?? '#315f61' }} />
       <div className="mb-5 flex items-start justify-between"><span className="grid size-11 place-items-center rounded-2xl text-white shadow-sm ring-1 ring-black/5" style={{ backgroundColor: item.color ?? '#315f61' }}><WalletCards className="size-5" /></span>{item.isArchived ? <Badge>Archived</Badge> : <Badge tone="info">{item.kind}</Badge>}</div>
       <h2 className="font-bold tracking-tight">{item.name}</h2><p className="mt-0.5 text-sm text-muted">{item.institution || item.currency}</p>
       <p className="money-value mt-5 text-2xl font-bold">{formatMoney(item.currentBalance, item.currency)}</p><p className="mt-1 text-xs text-muted">Opening {formatMoney(item.openingBalance, item.currency)}</p>
-      {!item.isArchived && <Button variant="ghost" className="mt-4 -ml-2 px-2" onClick={() => setEditing(item)}><Pencil className="size-4" />Manage</Button>}
+      {item.isArchived ? <ArchivedAccountActions account={item} /> : <Button variant="ghost" className="mt-4 -ml-2 px-2" onClick={() => setEditing(item)}><Pencil className="size-4" />Manage</Button>}
     </Card>)}</div>}
     <AccountDialog value={editing} open={editing !== undefined} onClose={() => setEditing(undefined)} />
   </>;
+}
+
+function ArchivedAccountActions({ account }: { account: Account }) {
+  const restore = useRestoreAccount(account.id);
+  const remove = usePermanentlyDeleteAccount();
+  const permanentlyDelete = () => {
+    if (confirm(`Permanently delete ${account.name}? This cannot be undone.`)) remove.mutate(account.id);
+  };
+  return <div className="mt-4 grid gap-2">
+    <div className="flex flex-wrap gap-2">
+      <Button variant="secondary" onClick={() => restore.mutate()} disabled={restore.isPending || remove.isPending}><RotateCcw className="size-4" />{restore.isPending ? 'Restoring…' : 'Restore'}</Button>
+      <Button variant="danger" onClick={permanentlyDelete} disabled={restore.isPending || remove.isPending}><Trash2 className="size-4" />{remove.isPending ? 'Deleting…' : 'Delete permanently'}</Button>
+    </div>
+    <FormError error={restore.error || remove.error} />
+  </div>;
 }
 
 function AccountDialog({ value, open, onClose }: { value: Account | null | undefined; open: boolean; onClose: () => void }) {
