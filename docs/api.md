@@ -125,6 +125,13 @@ A transfer uses one atomic row with owned source and destination accounts. It
 changes both account balances but is excluded from spending and income. Accounts
 must use the transaction currency; FX transfers are not yet modeled.
 
+Editing a transaction can change its category, amount, date, or participating
+account. Because balances are derived from active transaction rows, moving an
+expense from one account to another refunds the original account and debits the
+replacement account atomically. Deleting a transaction voids its audit record
+and reverses every account-balance effect for all transaction kinds. Linked asset
+purchase contributions are voided in the same database transaction.
+
 Asset purchases are also distinct from consumption. Creating an
 `asset_purchase` creates an asset contribution in the same database transaction.
 Voiding or editing that purchase updates its contribution and cost basis.

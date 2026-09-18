@@ -10,6 +10,15 @@ export function localInputNow(): string {
   const now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
   return now.toISOString().slice(0, 16);
 }
+export function toZonedLocalInput(value: string, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(value));
+  const get = (kind: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === kind)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}
 export function browserTimezone(): string { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
 export function addCalendarDays(date: string, days: number): string {
   const value = new Date(`${date}T12:00:00Z`);
