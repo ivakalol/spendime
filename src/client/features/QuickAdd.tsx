@@ -25,7 +25,7 @@ export function QuickAdd({ open, onClose }: { open: boolean; onClose: () => void
   const [category, setCategory] = useState('');
   const [asset, setAsset] = useState('');
   const [liability, setLiability] = useState('');
-  const [when, setWhen] = useState(localInputNow());
+  const [when, setWhen] = useState(() => localInputNow(me.data?.timezone ?? browserTimezone()));
   const [description, setDescription] = useState('');
   const [days, setDays] = useState('365');
   const activeAccounts = accounts.data?.filter((item) => !item.isArchived) ?? [];
@@ -33,7 +33,7 @@ export function QuickAdd({ open, onClose }: { open: boolean; onClose: () => void
   const needsSource = ['expense', 'amortized', 'transfer', 'asset_purchase', 'liability_payment'].includes(mode);
   const needsDestination = ['income', 'transfer'].includes(mode);
   const categoryOptions = useMemo(() => categories.data?.filter((item) => !item.isArchived && (item.kind === 'both' || item.kind === (mode === 'income' ? 'income' : 'expense'))) ?? [], [categories.data, mode]);
-  useEffect(() => { if (open) { setWhen(localInputNow()); mutation.reset(); } }, [open]);
+  useEffect(() => { if (open) { setWhen(localInputNow(me.data?.timezone ?? browserTimezone())); mutation.reset(); } }, [open, me.data?.timezone]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

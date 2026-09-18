@@ -63,7 +63,7 @@ const valuationSchema = z.object({
   if (!value.setAsCurrent && !value.valuedAt) {
     context.addIssue({ code: 'custom', path: ['valuedAt'], message: 'Historical valuations require valuedAt.' });
   }
-  if (value.valuedAt && Date.parse(value.valuedAt) > Date.now()) {
+  if (value.valuedAt && Date.parse(value.valuedAt) > Date.now() + 5 * 60_000) {
     context.addIssue({ code: 'custom', path: ['valuedAt'], message: 'valuedAt cannot be in the future.' });
   }
 });
