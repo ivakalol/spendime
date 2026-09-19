@@ -30,6 +30,7 @@ const bg: Record<string, string> = {
   'Market appreciation is not cash income. Asset purchases are shown separately from ordinary consumption.': 'Пазарното поскъпване не е паричен приход. Покупките на активи са отделени от обичайното потребление.',
   'Spending by category': 'Разходи по категории', 'No spending in this period.': 'Няма разходи за периода.', 'Account balances': 'Баланси по сметки', 'Create an account to begin.': 'Създайте сметка, за да започнете.',
   'Income': 'Приходи', 'Utility impact': 'Ефект от полезността', 'Asset gain change': 'Промяна в печалбата от активи',
+  'Chart series': 'Серии на диаграмата', 'Selected financial trends over time': 'Избраните финансови тенденции във времето', 'Select a trend to show it on the chart.': 'Изберете показател, който да се покаже на диаграмата.',
   'Welcome back': 'Добре дошли отново', 'Start clearly': 'Започнете ясно', 'Sign in to your finances': 'Влезте във финансите си', 'Create your private account': 'Създайте личен акаунт',
   'Your session stays in a secure HttpOnly cookie—never browser storage.': 'Сесията се пази в защитена HttpOnly бисквитка, а не в хранилището на браузъра.',
   'Password': 'Парола', 'Please wait…': 'Моля, изчакайте…', 'Sign in': 'Вход', 'Create account': 'Създай акаунт',

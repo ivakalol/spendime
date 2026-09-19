@@ -25,12 +25,12 @@ export default function TransactionsPage() {
   const filter = (setter: (value: string) => void) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { setter(event.target.value); setPage(0); };
   return <>
     <PageHeader eyebrow="Ledger" title="Transactions" description="Actual cash movements, transfers, investments, and utility methods remain visibly distinct." />
-    <Card className="mb-5 grid gap-3 bg-surface/80 sm:grid-cols-2 xl:grid-cols-3">
+    <Card className="mb-5 grid min-w-0 grid-cols-1 gap-3 bg-surface/80 sm:grid-cols-2 xl:grid-cols-3">
       <Select aria-label="Filter by type" value={kind} onChange={filter(setKind)}><option value="">All transaction types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="transfer">Transfers</option><option value="asset_purchase">Asset purchases</option><option value="liability_payment">Liability payments</option></Select>
       <Select aria-label="Filter by account" value={account} onChange={filter(setAccount)}><option value="">All accounts</option>{accounts.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
       <Select aria-label="Filter by category" value={category} onChange={filter(setCategory)}><option value="">All categories</option>{categories.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
-      <Input aria-label="From date" type="date" value={from} onChange={filter(setFrom)} />
-      <Input aria-label="Through date" type="date" value={to} onChange={filter(setTo)} />
+      <Field label="From date"><Input className="min-w-0 max-w-full" type="date" value={from} onChange={filter(setFrom)} /></Field>
+      <Field label="Through date"><Input className="min-w-0 max-w-full" type="date" value={to} onChange={filter(setTo)} /></Field>
       <Select aria-label="Sort transactions" value={sort} onChange={filter(setSort)}><option value="occurredAt">Newest occurrence</option><option value="createdAt">Recently added</option><option value="amount">Largest amount</option></Select>
     </Card>
     {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.data.length === 0 ? <EmptyState icon={<ReceiptText />} title="No transactions yet" description="Use the centered Quick Add button to record your first money movement." /> : <>
