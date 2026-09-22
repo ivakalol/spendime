@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import type pg from 'pg';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import type { AppConfig } from './config.js';
 import { errorHandler, notFoundHandler } from './errors.js';
 import { createAuthRouter } from './routes/auth.js';
@@ -13,6 +14,10 @@ import { createDashboardRouter } from './domains/dashboard/routes.js';
 import { createLiabilitiesRouter } from './domains/liabilities/routes.js';
 import { createRecurringRulesRouter } from './domains/recurring/routes.js';
 import { createTransactionsRouter } from './domains/transactions/routes.js';
+import { createBankingRouter } from './domains/banking/routes.js';
+import { EnableBankingProvider } from './domains/banking/enableBanking.js';
+import type { BankingProvider } from './domains/banking/provider.js';
+import { BankingSecrets } from './domains/banking/secrets.js';
 
 export const CACHE_CONTROL = {
   revalidate: 'no-cache, no-store, must-revalidate',
@@ -43,7 +48,7 @@ export function setClientStaticHeaders(response: express.Response, filePath: str
   }
 }
 
-export function createApp(pool: pg.Pool, config: AppConfig): Express {
+export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: BankingProvider): Express {
   const app = express();
   if (config.trustProxy) app.set('trust proxy', 1);
   app.disable('x-powered-by');
@@ -67,6 +72,13 @@ export function createApp(pool: pg.Pool, config: AppConfig): Express {
   app.use('/api/liabilities', createLiabilitiesRouter(pool));
   app.use('/api/recurring-rules', createRecurringRulesRouter(pool));
   app.use('/api/dashboard', createDashboardRouter(pool));
+  const privateKey = config.enableBankingPrivateKeyFile ? readFileSync(config.enableBankingPrivateKeyFile, 'utf8')
+    : config.enableBankingPrivateKeyB64 ? Buffer.from(config.enableBankingPrivateKeyB64, 'base64').toString('utf8') : undefined;
+  const provider = bankingProvider ?? (config.enableBankingAppId && privateKey
+    ? new EnableBankingProvider(config.enableBankingAppId, privateKey) : undefined);
+  if (provider && !config.bankingEncryptionKeyB64) throw new Error('BANKING_ENCRYPTION_KEY_B64 is required for banking');
+  app.use('/api/banking', createBankingRouter(pool, config, provider,
+    config.bankingEncryptionKeyB64 ? new BankingSecrets(config.bankingEncryptionKeyB64) : undefined));
 
   const clientRoot = path.resolve(process.cwd(), 'dist/client');
   if (config.nodeEnv === 'production' && existsSync(path.join(clientRoot, 'index.html'))) {

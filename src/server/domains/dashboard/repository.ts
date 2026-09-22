@@ -47,10 +47,11 @@ export async function getDashboard(
   const range=[bounds.startUtc,bounds.endUtcExclusive];
   const cashFlow=(await client.query(`
     SELECT currency,
-      COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)::numeric AS "actualSpending",
+      (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
       COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome",
       (COALESCE(sum(amount) FILTER(WHERE kind='income'),0)-
-       COALESCE(sum(amount) FILTER(WHERE kind='expense'),0))::numeric AS "ordinaryNetCashFlow",
+       COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)+
+       COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "ordinaryNetCashFlow",
       COALESCE(sum(amount) FILTER(WHERE kind='asset_purchase'),0)::numeric AS "assetPurchases",
       COALESCE(sum(amount) FILTER(WHERE kind='asset_sale'),0)::numeric AS "assetSaleProceeds",
       COALESCE(sum(amount) FILTER(WHERE kind='liability_drawdown'),0)::numeric AS "liabilityDrawdowns",
@@ -79,9 +80,9 @@ export async function getDashboard(
 
   const spendingByCategory=(await client.query(`
     SELECT t.currency,t.category_id AS "categoryId",COALESCE(c.name,'Uncategorized') AS "categoryName",
-      sum(t.amount)::numeric AS "actualSpending"
+      sum(CASE WHEN t.kind='refund' THEN -t.amount ELSE t.amount END)::numeric AS "actualSpending"
     FROM transactions t LEFT JOIN categories c ON c.id=t.category_id
-    WHERE t.voided_at IS NULL AND t.kind='expense' AND t.occurred_at >= $1 AND t.occurred_at < $2
+    WHERE t.voided_at IS NULL AND t.kind IN ('expense','refund') AND t.occurred_at >= $1 AND t.occurred_at < $2
     GROUP BY t.currency,t.category_id,c.name ORDER BY t.currency,"actualSpending" DESC`,range)).rows;
 
   const accountBalances=(await client.query(`
@@ -95,11 +96,11 @@ export async function getDashboard(
       (CASE WHEN $3 IN ('6-month','annual')
         THEN date_trunc('month',occurred_at AT TIME ZONE $4)
         ELSE date_trunc('day',occurred_at AT TIME ZONE $4) END)::text AS "bucketStartLocal",
-      COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)::numeric AS "actualSpending",
+      (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
       COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome",
       COALESCE(sum(amount) FILTER(WHERE kind='asset_purchase'),0)::numeric AS "assetPurchases"
     FROM transactions WHERE voided_at IS NULL AND occurred_at >= $1 AND occurred_at < $2
-      AND kind IN ('expense','income','asset_purchase')
+      AND kind IN ('expense','refund','income','asset_purchase')
     GROUP BY currency,"bucketStartLocal" ORDER BY "bucketStartLocal",currency`,
     [...range,timeframe,bounds.timezone])).rows;
 

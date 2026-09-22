@@ -12,6 +12,16 @@ export interface AppConfig {
   appOrigin?: string;
   authRateLimitMax: number;
   authRateLimitWindowMs: number;
+  bankingRedirectUri?: string;
+  enableBankingAppId?: string;
+  enableBankingPrivateKeyFile?: string;
+  enableBankingPrivateKeyB64?: string;
+  bankingEncryptionKeyB64?: string;
+  geminiApiKey?: string;
+  geminiModel?: string;
+  geminiEnabled: boolean;
+  geminiPaidProject: boolean;
+  geminiPrivacyApproved: boolean;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -61,5 +71,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     authRateLimitMax: integerInRange(env, 'AUTH_RATE_LIMIT_MAX', 10, 1, 1_000),
     authRateLimitWindowMs:
       integerInRange(env, 'AUTH_RATE_LIMIT_WINDOW_MINUTES', 15, 1, 1_440) * 60_000,
+    ...(env.BANKING_REDIRECT_URI?.trim() ? { bankingRedirectUri: env.BANKING_REDIRECT_URI.trim() } : {}),
+    ...(env.ENABLE_BANKING_APP_ID?.trim() ? { enableBankingAppId: env.ENABLE_BANKING_APP_ID.trim() } : {}),
+    ...(env.ENABLE_BANKING_PRIVATE_KEY_FILE?.trim() ? { enableBankingPrivateKeyFile: env.ENABLE_BANKING_PRIVATE_KEY_FILE.trim() } : {}),
+    ...(env.ENABLE_BANKING_PRIVATE_KEY_B64?.trim() ? { enableBankingPrivateKeyB64: env.ENABLE_BANKING_PRIVATE_KEY_B64.trim() } : {}),
+    ...(env.BANKING_ENCRYPTION_KEY_B64?.trim() ? { bankingEncryptionKeyB64: env.BANKING_ENCRYPTION_KEY_B64.trim() } : {}),
+    ...(env.GEMINI_API_KEY?.trim() ? { geminiApiKey: env.GEMINI_API_KEY.trim() } : {}),
+    ...(env.GEMINI_MODEL?.trim() ? { geminiModel: env.GEMINI_MODEL.trim() } : {}),
+    geminiEnabled: env.GEMINI_ENABLED === '1',
+    geminiPaidProject: env.GEMINI_PAID_PROJECT === '1',
+    geminiPrivacyApproved: env.GEMINI_PRIVACY_APPROVED === '1',
   };
 }

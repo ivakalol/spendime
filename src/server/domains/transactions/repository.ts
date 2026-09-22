@@ -9,7 +9,7 @@ export const TRANSACTION_SELECT = `SELECT
   t.liability_id AS "liabilityId", t.recurring_rule_id AS "recurringRuleId",
   t.amount, t.currency,
   to_char(t.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt",
-  t.description, t.merchant,
+  t.description, t.merchant, t.category_locked AS "categoryLocked",
   t.amortization_start AS "amortizationStart",
   t.amortization_end AS "amortizationEnd",
   t.daily_impact AS "dailyImpact",

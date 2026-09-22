@@ -28,6 +28,7 @@ services:
       - ./database/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - ./database/init/002_configure_app_role.sh:/docker-entrypoint-initdb.d/002_configure_app_role.sh:ro
       - ./database/init/003_financial_integrity.sql:/docker-entrypoint-initdb.d/003_financial_integrity.sql:ro
+      - ./database/init/004_banking.sql:/docker-entrypoint-initdb.d/004_banking.sql:ro
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
@@ -62,6 +63,16 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-}
       AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
       AUTH_RATE_LIMIT_WINDOW_MINUTES: ${AUTH_RATE_LIMIT_WINDOW_MINUTES:-15}
+      BANKING_REDIRECT_URI: ${BANKING_REDIRECT_URI:-}
+      ENABLE_BANKING_APP_ID: ${ENABLE_BANKING_APP_ID:-}
+      ENABLE_BANKING_PRIVATE_KEY_FILE: ${ENABLE_BANKING_PRIVATE_KEY_FILE:-}
+      ENABLE_BANKING_PRIVATE_KEY_B64: ${ENABLE_BANKING_PRIVATE_KEY_B64:-}
+      BANKING_ENCRYPTION_KEY_B64: ${BANKING_ENCRYPTION_KEY_B64:-}
+      GEMINI_ENABLED: ${GEMINI_ENABLED:-0}
+      GEMINI_PAID_PROJECT: ${GEMINI_PAID_PROJECT:-0}
+      GEMINI_PRIVACY_APPROVED: ${GEMINI_PRIVACY_APPROVED:-0}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,6 +120,33 @@ services:
     mem_reservation: 128m
     cpus: 1.0
     pids_limit: 100
+    networks:
+      - spendime_internal
+
+  banking-worker:
+    profiles: ["banking"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "dist/src/banking-worker.js"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DB_POOL_MAX: 3
+      ENABLE_BANKING_APP_ID: ${ENABLE_BANKING_APP_ID:-}
+      ENABLE_BANKING_PRIVATE_KEY_FILE: ${ENABLE_BANKING_PRIVATE_KEY_FILE:-}
+      ENABLE_BANKING_PRIVATE_KEY_B64: ${ENABLE_BANKING_PRIVATE_KEY_B64:-}
+      BANKING_ENCRYPTION_KEY_B64: ${BANKING_ENCRYPTION_KEY_B64:-}
+      GEMINI_ENABLED: ${GEMINI_ENABLED:-0}
+      GEMINI_PAID_PROJECT: ${GEMINI_PAID_PROJECT:-0}
+      GEMINI_PRIVACY_APPROVED: ${GEMINI_PRIVACY_APPROVED:-0}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 128m
     networks:
       - spendime_internal
 

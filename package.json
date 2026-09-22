@@ -13,7 +13,11 @@
     "build:client": "vite build",
     "dev": "vite",
     "dev:server": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/banking-worker.ts",
     "dev:client": "vite",
+    "dev:sandbox:server": "node --env-file=.env.sandbox.local --import tsx --watch src/server.ts",
+    "dev:sandbox:worker": "node --env-file=.env.sandbox.local --import tsx --watch src/banking-worker.ts",
+    "dev:sandbox:client": "vite --host localhost --port 5173",
     "start": "node dist/src/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
@@ -50,6 +54,7 @@
     "vitest": "^5.0.1"
   },
   "dependencies": {
+    "@google/genai": "^2.23.0",
     "argon2": "^0.45.1",
     "cookie": "^2.0.1",
     "express": "^5.2.1",

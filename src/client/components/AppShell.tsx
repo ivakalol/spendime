@@ -9,7 +9,7 @@ import { useLanguage } from '../i18n';
 import { Button, Modal } from './ui';
 
 const primary = [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }, { to: '/transactions', label: 'Transactions', icon: ReceiptText }, { to: '/accounts', label: 'Accounts', icon: WalletCards }, { to: '/assets', label: 'Assets', icon: BarChart3 }];
-const secondary = [{ to: '/liabilities', label: 'Liabilities', icon: Landmark }, { to: '/recurring', label: 'Recurring', icon: CalendarClock }, { to: '/categories', label: 'Categories', icon: Shapes }, { to: '/settings', label: 'Settings', icon: Settings }];
+const secondary = [{ to: '/banking', label: 'Banking', icon: Landmark }, { to: '/liabilities', label: 'Liabilities', icon: Landmark }, { to: '/recurring', label: 'Recurring', icon: CalendarClock }, { to: '/categories', label: 'Categories', icon: Shapes }, { to: '/settings', label: 'Settings', icon: Settings }];
 type NavigationItem = (typeof primary)[number] | (typeof secondary)[number];
 
 function NavItem({ item, onClick, light = false }: { item: NavigationItem; onClick?: () => void; light?: boolean }) {

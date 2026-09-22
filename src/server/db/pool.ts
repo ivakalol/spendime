@@ -31,7 +31,9 @@ export async function assertSafeRuntimeRole(pool: pg.Pool): Promise<void> {
         WHERE n.nspname = 'public'
           AND c.relname IN (
             'accounts', 'categories', 'assets', 'asset_valuations',
-            'liabilities', 'recurring_rules', 'transactions', 'asset_contributions'
+            'liabilities', 'recurring_rules', 'transactions', 'asset_contributions',
+            'bank_connections', 'bank_auth_attempts', 'bank_account_links',
+            'bank_transactions', 'bank_category_rules', 'bank_transfer_pairs', 'bank_refund_links', 'bank_ai_preferences'
           )
           AND pg_get_userbyid(c.relowner) = current_user
       ) AS owns_protected_tables,
@@ -41,7 +43,9 @@ export async function assertSafeRuntimeRole(pool: pg.Pool): Promise<void> {
         WHERE n.nspname = 'public'
           AND c.relname IN (
             'accounts', 'categories', 'assets', 'asset_valuations',
-            'liabilities', 'recurring_rules', 'transactions', 'asset_contributions'
+            'liabilities', 'recurring_rules', 'transactions', 'asset_contributions',
+            'bank_connections', 'bank_auth_attempts', 'bank_account_links',
+            'bank_transactions', 'bank_category_rules', 'bank_transfer_pairs', 'bank_refund_links', 'bank_ai_preferences'
           )
       ) AS protected_table_count,
       (
@@ -51,7 +55,9 @@ export async function assertSafeRuntimeRole(pool: pg.Pool): Promise<void> {
           AND c.relrowsecurity
           AND c.relname IN (
             'accounts', 'categories', 'assets', 'asset_valuations',
-            'liabilities', 'recurring_rules', 'transactions', 'asset_contributions'
+            'liabilities', 'recurring_rules', 'transactions', 'asset_contributions',
+            'bank_connections', 'bank_auth_attempts', 'bank_account_links',
+            'bank_transactions', 'bank_category_rules', 'bank_transfer_pairs', 'bank_refund_links', 'bank_ai_preferences'
           )
       ) AS rls_enabled_count
     FROM pg_roles r WHERE r.rolname = current_user
@@ -63,8 +69,8 @@ export async function assertSafeRuntimeRole(pool: pg.Pool): Promise<void> {
     role.is_superuser ||
     role.bypasses_rls ||
     role.owns_protected_tables ||
-    role.protected_table_count !== 8 ||
-    role.rls_enabled_count !== 8
+    role.protected_table_count !== 16 ||
+    role.rls_enabled_count !== 16
   ) {
     throw new Error(
       'Unsafe database configuration: runtime role or protected-table RLS checks failed',

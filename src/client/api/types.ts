@@ -1,6 +1,6 @@
 export type DecimalString = string;
 export type CurrencyCode = string;
-export type TransactionKind = 'expense' | 'income' | 'transfer' | 'asset_purchase' | 'asset_sale' | 'liability_drawdown' | 'liability_payment' | 'adjustment';
+export type TransactionKind = 'expense' | 'income' | 'refund' | 'transfer' | 'asset_purchase' | 'asset_sale' | 'liability_drawdown' | 'liability_payment' | 'adjustment';
 export type TransactionMethod = 'standard' | 'amortized' | 'recurring';
 
 export interface User {
@@ -23,6 +23,7 @@ export interface Transaction {
   occurredAt: string; description: string | null; merchant: string | null; amortizationStart: string | null;
   amortizationEnd: string | null; dailyImpact: DecimalString | null; voidedAt: string | null; voidReason: string | null;
   createdAt: string; updatedAt: string;
+  categoryLocked?: boolean;
 }
 export interface Asset {
   id: string; name: string; classification: 'depreciating' | 'appreciating' | 'custom'; currency: string;

@@ -182,6 +182,10 @@ docker compose up -d --build app
 
 The migration is additive and safe to rerun. It does not reset the named volume.
 
+The optional Enable Banking sandbox integration has a separate additive migration,
+`database/init/004_banking.sql`, plus an opt-in worker. Apply it only after
+reviewing [banking setup and migration steps](banking-integration.md).
+
 ## Completely reset the development database
 
 This permanently deletes every database record in the named volume and reruns
