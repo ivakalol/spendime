@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type pg from 'pg';
 import { z } from 'zod';
-import type { AppConfig } from '../../config.js';
+import { bankingCredentialConfig, bankingRuntimeEnabled, hasBankingAccess, type AppConfig } from '../../config.js';
 import { withUserTransaction } from '../../db/transactions.js';
 import { ApiError } from '../../errors.js';
 import { requireAuthentication } from '../../middleware/authenticate.js';
@@ -13,7 +13,6 @@ import { postStagedTransaction, syncConnection } from './sync.js';
 import { merchantKey } from './categorize.js';
 import { voidTransaction } from '../transactions/repository.js';
 import type { BankingSecrets } from './secrets.js';
-import { geminiAvailable } from './gemini.js';
 
 const stateHash = (state: string) => createHash('sha256').update(state).digest('hex');
 const countrySchema = z.string().regex(/^[A-Z]{2}$/).default('BG');
@@ -23,7 +22,8 @@ const linkSchema = z.object({ accountId: uuidSchema.nullable().default(null) }).
 function providerError(error: unknown): never {
   if (error instanceof BankingProviderError) {
     if (error.code === 'EXPIRED_SESSION') throw new ApiError(409, 'bank_consent_expired', 'Bank access expired. Reconnect this bank.');
-    if (error.code.includes('RATE_LIMIT') || error.code === 'http_429') throw new ApiError(429, 'bank_rate_limited', 'The bank is temporarily limiting requests. Try later.');
+    if (error.code.includes('RATE_LIMIT') || error.code === 'http_429' || error.httpStatus===429)
+      throw new ApiError(429, 'bank_rate_limited', 'The bank is temporarily limiting requests. Try later.');
     throw new ApiError(502, 'bank_provider_unavailable', 'The bank connection is temporarily unavailable. Try again later.');
   }
   throw error;
@@ -41,18 +41,39 @@ function requireBankingOrigin(config: AppConfig) {
 export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?: BankingProvider, secrets?: BankingSecrets): Router {
   const router = Router();
   router.use(requireAuthentication(pool));
-  router.use((_, _response, next) => provider && secrets ? next() : next(new ApiError(503, 'banking_not_configured', 'Banking sandbox is not configured.')));
+  router.use((request, _response, next) => hasBankingAccess(config, authenticatedUserId(request))
+    ? next() : next(new ApiError(403, 'banking_forbidden', 'Banking access is restricted.')));
+  router.use((_, _response, next) => bankingRuntimeEnabled(config)
+    ? next() : next(new ApiError(503, 'banking_disabled', 'Banking is disabled in this environment.')));
+  router.use((_, _response, next) => provider && secrets ? next() : next(new ApiError(503, 'banking_not_configured', 'Banking is not configured.')));
   const bank = provider!;
+  const credentials = bankingCredentialConfig(config);
   const origin = requireBankingOrigin(config);
+  // A bank ID from another environment must never be usable through this runtime,
+  // even if both environments were accidentally pointed at the same database.
+  router.param('id', async (request, _response, next, value) => {
+    const kind = request.path.split('/')[1] ?? '';
+    if (!['connections','links','review','transactions'].includes(kind)) return next();
+    const id = uuidSchema.safeParse(value);
+    if (!id.success) return next(new ApiError(404,'not_found','Banking record was not found.'));
+    const found = await inUserTransaction(pool,request,async client => {
+      const table = kind === 'connections' ? 'bank_connections c' :
+        kind === 'links' ? 'bank_account_links l JOIN bank_connections c ON c.id=l.connection_id' :
+        kind === 'review' ? 'bank_transactions bt JOIN bank_account_links l ON l.id=bt.bank_account_link_id JOIN bank_connections c ON c.id=l.connection_id' :
+          'transactions t JOIN bank_transactions bt ON bt.ledger_transaction_id=t.id JOIN bank_account_links l ON l.id=bt.bank_account_link_id JOIN bank_connections c ON c.id=l.connection_id';
+      const column = kind === 'connections' ? 'c.id' : kind === 'links' ? 'l.id' : kind === 'review' ? 'bt.id' : 't.id';
+      return (await client.query(`SELECT 1 FROM ${table} WHERE ${column}=$1 AND c.provider=$2 AND c.environment=$3 LIMIT 1`,
+        [id.data,bank.id,bank.environment])).rowCount;
+    });
+    return found ? next() : next(new ApiError(404,'not_found','Banking record was not found.'));
+  });
 
-  router.get('/ai', async (request,response) => {
-    const enabled = await inUserTransaction(pool,request,async (client) =>
-      (await client.query<{ enabled:boolean }>('SELECT enabled FROM bank_ai_preferences WHERE user_id=$1',[authenticatedUserId(request)])).rows[0]?.enabled ?? false);
-    response.json({ data:{ available:geminiAvailable(config), enabled } });
+  router.get('/ai', async (_request,response) => {
+    response.json({ data:{ available:false, enabled:false } });
   });
   router.put('/ai', origin, async (request,response) => {
     const { enabled } = z.object({ enabled:z.boolean() }).strict().parse(request.body);
-    if (enabled && !geminiAvailable(config)) throw new ApiError(409,'gemini_unavailable','AI categorization is unavailable until paid billing and privacy processing are configured.');
+    if (enabled) throw new ApiError(409,'gemini_unavailable','Automatic bank categorization is disabled for this workflow.');
     await inUserTransaction(pool,request,async (client,userId) => {
       await client.query(`INSERT INTO bank_ai_preferences(user_id,enabled,accepted_at) VALUES($1,$2,CASE WHEN $2 THEN now() ELSE NULL END)
         ON CONFLICT(user_id) DO UPDATE SET enabled=excluded.enabled,accepted_at=excluded.accepted_at,updated_at=now()`,[userId,enabled]);
@@ -100,34 +121,42 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       const connections = (await client.query(`SELECT id,provider,environment,institution_name AS "institutionName",
           institution_country AS "institutionCountry",status,consent_expires_at AS "consentExpiresAt",
           last_synced_at AS "lastSyncedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode" FROM bank_connections
-          ORDER BY created_at DESC`)).rows;
+          WHERE provider=$1 AND environment=$2 ORDER BY created_at DESC`,[bank.id,bank.environment])).rows;
       const links = (await client.query(`SELECT l.id,l.connection_id AS "connectionId",l.name,l.currency,
           l.account_id AS "accountId",l.reported_balance AS "reportedBalance",l.balance_as_of AS "balanceAsOf",
-          l.balance_status AS "balanceStatus",l.last_synced_at AS "lastSyncedAt",a.current_balance AS "ledgerBalance"
+          l.balance_status AS "balanceStatus",l.last_synced_at AS "lastSyncedAt",
+          l.link_mode AS "linkMode",l.automatic_post_after AS "automaticPostAfter",
+          (SELECT count(*)::integer FROM bank_transactions bt WHERE bt.bank_account_link_id=l.id
+            AND bt.match_status='review') AS "reviewCount",
+          a.current_balance AS "ledgerBalance"
           FROM bank_account_links l LEFT JOIN account_balances a ON a.account_id=l.account_id
-          JOIN bank_connections c ON c.id=l.connection_id ORDER BY l.name`)).rows;
+          JOIN bank_connections c ON c.id=l.connection_id
+          WHERE c.provider=$1 AND c.environment=$2 ORDER BY l.name`,[bank.id,bank.environment])).rows;
       return connections.map((connection) => ({ ...connection, accounts: links.filter((link) => link.connectionId === connection.id) }));
     });
     response.json({ data });
   });
 
   async function begin(request: import('express').Request, connectionId?: string) {
-    if (!config.bankingRedirectUri) throw new ApiError(503, 'banking_redirect_missing', 'Banking callback is not configured.');
-    const uri = new URL(config.bankingRedirectUri);
-    if (uri.pathname !== '/api/banking/callback' || !(uri.protocol === 'https:' || (config.nodeEnv !== 'production' && uri.hostname === 'localhost'))) {
+    if (!credentials.redirectUri) throw new ApiError(503, 'banking_redirect_missing', 'Banking callback is not configured.');
+    const uri = new URL(credentials.redirectUri);
+    if (uri.pathname !== '/api/banking/callback' || uri.search || uri.hash || uri.username || uri.password ||
+      !(uri.protocol === 'https:' || (config.nodeEnv !== 'production' && uri.hostname === 'localhost')) ||
+      (config.nodeEnv === 'production' && (!config.appOrigin || uri.origin !== config.appOrigin))) {
       throw new ApiError(503, 'banking_redirect_invalid', 'Banking callback configuration is invalid.');
     }
     const input = connectionId ? await inUserTransaction(pool, request, async (client) => {
-      const row = (await client.query(`SELECT institution_name AS name,institution_country AS country FROM bank_connections WHERE id=$1 AND status <> 'disconnected'`, [connectionId])).rows[0];
+      const row = (await client.query(`SELECT institution_name AS name,institution_country AS country FROM bank_connections
+        WHERE id=$1 AND provider=$2 AND environment=$3 AND status <> 'disconnected'`, [connectionId,bank.id,bank.environment])).rows[0];
       return requireRow(row) as { name: string; country: string };
     }) : selectSchema.parse(request.body);
     let institution;
     try { institution = (await bank.institutions(input.country)).find((item) => item.name === input.name); }
     catch (error) { providerError(error); }
-    if (!institution) throw new ApiError(404, 'bank_not_found', 'This bank is not available in the sandbox.');
+    if (!institution) throw new ApiError(404, 'bank_not_found', 'This bank is not available.');
     const state = randomUUID();
     let url: string;
-    try { url = (await bank.begin({ institution, state, redirectUri: config.bankingRedirectUri })).url; }
+    try { url = (await bank.begin({ institution, state, redirectUri: credentials.redirectUri })).url; }
     catch (error) { providerError(error); }
     const userId = authenticatedUserId(request);
     const id = await withUserTransaction(pool, userId, async (client) => {
@@ -151,7 +180,9 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     const query = z.object({ state: z.string().uuid(), code: z.string().optional(), error: z.string().optional() }).passthrough().parse(request.query);
     const attempt = await inUserTransaction(pool, request, async (client) =>
       (await client.query<{ connection_id: string }>(`SELECT connection_id FROM bank_auth_attempts
-       WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now()`, [stateHash(query.state)])).rows[0]);
+       WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now()
+         AND connection_id IN (SELECT id FROM bank_connections WHERE provider=$2 AND environment=$3)`,
+       [stateHash(query.state),bank.id,bank.environment])).rows[0]);
     if (!attempt) throw new ApiError(400, 'invalid_bank_state', 'This bank connection link is invalid or expired.');
     if (query.error || !query.code) {
       await inUserTransaction(pool, request, async (client) => {
@@ -211,10 +242,11 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       const staged = await client.query<{ id: string }>(`SELECT id FROM bank_transactions WHERE bank_account_link_id=$1 AND status='BOOK' AND match_status='new'
         ORDER BY occurred_on,CASE direction WHEN 'debit' THEN 0 ELSE 1 END,id`,[id]);
       for (const row of staged.rows) {
-        if (input.accountId) await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[row.id]);
+        if (input.accountId || bank.environment === 'production') await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[row.id]);
         else await postStagedTransaction(client,userId,row.id);
       }
-      await client.query(`UPDATE bank_connections SET next_sync_at=now() WHERE id=$1 AND status='active'`,[link.connection_id]);
+      await client.query(`UPDATE bank_connections SET next_sync_at=now() WHERE id=$1 AND status='active'
+        AND (environment='sandbox' OR last_synced_at IS NULL)`,[link.connection_id]);
       return { accountId };
     });
     response.json({ data });
@@ -227,18 +259,23 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       (await client.query(`SELECT id FROM bank_connections WHERE id=$1 AND status='active'
       AND (next_sync_at IS NULL OR next_sync_at<=now())`,[id])).rows[0]);
     if (!due) throw new ApiError(429,'sync_not_due','This bank can be synchronized again at its next scheduled time.');
-    try { await syncConnection(pool,bank,secrets!,userId,id); } catch (error) { providerError(error); }
+    try {
+      if (!await syncConnection(pool,bank,secrets!,userId,id,false,config.sandboxSyncIntervalMinutes))
+        throw new ApiError(409,'sync_in_progress','This bank is already synchronizing.');
+    } catch (error) { providerError(error); }
     response.json({ data: { requested: true } });
   });
 
   router.get('/review', async (request,response) => {
     const data = await inUserTransaction(pool,request,async (client) =>
       (await client.query(`SELECT bt.id,bt.bank_account_link_id AS "bankAccountLinkId",l.name AS "accountName",
-        bt.direction,bt.amount,bt.currency,bt.occurred_on AS "occurredOn",bt.merchant,bt.description,bt.status,
+        bt.direction,bt.amount,bt.currency,bt.occurred_on::text AS "occurredOn",bt.merchant,bt.description,bt.status,
         bt.ledger_transaction_id AS "ledgerTransactionId",bt.proposed_amount AS "proposedAmount",
-        bt.proposed_currency AS "proposedCurrency",bt.proposed_occurred_on AS "proposedOccurredOn"
+        bt.proposed_currency AS "proposedCurrency",bt.proposed_occurred_on::text AS "proposedOccurredOn"
         FROM bank_transactions bt JOIN bank_account_links l ON l.id=bt.bank_account_link_id
-        WHERE bt.match_status='review' ORDER BY bt.occurred_on DESC LIMIT 200`)).rows);
+        JOIN bank_connections c ON c.id=l.connection_id
+        WHERE bt.match_status='review' AND c.provider=$1 AND c.environment=$2
+        ORDER BY bt.occurred_on DESC LIMIT 200`,[bank.id,bank.environment])).rows);
     response.json({ data });
   });
 
@@ -259,14 +296,16 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
 
   router.get('/transfers/candidates', async (request,response) => {
     const data = await inUserTransaction(pool,request,async (client) =>
-      (await client.query(`SELECT bt.id,bt.direction,bt.amount,bt.currency,bt.occurred_on AS "occurredOn",
+      (await client.query(`SELECT bt.id,bt.direction,bt.amount,bt.currency,bt.occurred_on::text AS "occurredOn",
         bt.merchant,l.name AS "accountName" FROM bank_transactions bt
         JOIN bank_account_links l ON l.id=bt.bank_account_link_id
         JOIN transactions t ON t.id=bt.ledger_transaction_id
+        JOIN bank_connections c ON c.id=l.connection_id
         WHERE bt.match_status='posted' AND bt.status='BOOK' AND bt.occurred_on>=current_date-interval '90 days'
+          AND c.provider=$1 AND c.environment=$2
           AND t.voided_at IS NULL AND NOT t.category_locked AND t.kind IN ('expense','income')
           AND NOT EXISTS(SELECT 1 FROM bank_transfer_pairs p WHERE p.debit_bank_transaction_id=bt.id OR p.credit_bank_transaction_id=bt.id)
-        ORDER BY bt.occurred_on DESC LIMIT 200`)).rows);
+        ORDER BY bt.occurred_on DESC LIMIT 200`,[bank.id,bank.environment])).rows);
     response.json({ data });
   });
 
@@ -317,6 +356,25 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     response.json({data:{kept:true}});
   });
 
+  router.post('/links/:id/complete-initial-review', origin, async(request,response)=>{
+    const id=uuidSchema.parse(request.params.id);
+    await inUserTransaction(pool,request,async(client)=>{
+      const link=(await client.query<{ id:string; last_synced_at:Date|null; automatic_post_after:Date|null }>(`
+        SELECT l.id,l.last_synced_at,l.automatic_post_after FROM bank_account_links l
+        JOIN bank_connections c ON c.id=l.connection_id AND c.status='active'
+        WHERE l.id=$1 AND l.account_id IS NOT NULL AND (l.link_mode='existing' OR $2::boolean)
+          AND c.provider=$3 AND c.environment=$4 FOR UPDATE OF l`,
+        [id,bank.environment==='production',bank.id,bank.environment])).rows[0];
+      if(!link || !link.last_synced_at || link.automatic_post_after)
+        throw new ApiError(409,'initial_review_unavailable','Finish the first bank sync before completing reconciliation.');
+      const unresolved=await client.query(`SELECT id FROM bank_transactions WHERE bank_account_link_id=$1
+        AND status='BOOK' AND match_status IN ('new','review') AND ledger_transaction_id IS NULL LIMIT 1`,[id]);
+      if(unresolved.rowCount) throw new ApiError(409,'historical_review_incomplete','Resolve all booked historical movements before enabling automatic imports.');
+      await client.query(`UPDATE bank_account_links SET automatic_post_after=now() WHERE id=$1`,[id]);
+    });
+    response.json({data:{automaticPostingEnabled:true}});
+  });
+
   router.post('/links/:id/reconcile', origin, async (request,response) => {
     const id = uuidSchema.parse(request.params.id);
     const data = await inUserTransaction(pool,request,async (client) => {
@@ -342,7 +400,9 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
         l.account_id,t.category_locked,t.kind FROM bank_transactions bt
         JOIN bank_account_links l ON l.id=bt.bank_account_link_id
         JOIN transactions t ON t.id=bt.ledger_transaction_id
-        WHERE bt.id IN ($1,$2) AND bt.status='BOOK' AND bt.match_status='posted' FOR UPDATE OF bt`,[debitId,creditId]);
+        JOIN bank_connections c ON c.id=l.connection_id
+        WHERE bt.id IN ($1,$2) AND bt.status='BOOK' AND bt.match_status='posted'
+          AND c.provider=$3 AND c.environment=$4 FOR UPDATE OF bt`,[debitId,creditId,bank.id,bank.environment]);
       const debit = result.rows.find((x:any)=>x.id===debitId && x.direction==='debit');
       const credit = result.rows.find((x:any)=>x.id===creditId && x.direction==='credit');
       if (!debit || !credit || !debit.account_id || !credit.account_id || debit.account_id===credit.account_id ||
@@ -355,16 +415,19 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       let creditLedger: string;
       if (debit.currency===credit.currency && debit.amount===credit.amount) {
         const inserted = await client.query<{ id:string }>(`INSERT INTO transactions(user_id,kind,source_account_id,destination_account_id,
-          amount,currency,occurred_at,description) VALUES($1,'transfer',$2,$3,$4,$5,$6::date+time '12:00:00','Own bank transfer') RETURNING id`,
+          amount,currency,occurred_at,description) VALUES($1,'transfer',$2,$3,$4,$5,
+          ($6::date+time '12:00:00') AT TIME ZONE (SELECT timezone FROM users WHERE id=$1),'Own bank transfer') RETURNING id`,
         [userId,debit.account_id,credit.account_id,debit.amount,debit.currency,debit.occurred_on]);
         debitLedger=creditLedger=inserted.rows[0]!.id;
       } else {
         const inserted = await client.query<{ id:string }>(`INSERT INTO transactions(user_id,kind,source_account_id,destination_account_id,
-          amount,currency,occurred_at,description) VALUES($1,'adjustment',$2,$3,$4,$5,$6::date+time '12:00:00','Own bank FX transfer') RETURNING id`,
+          amount,currency,occurred_at,description) VALUES($1,'adjustment',$2,$3,$4,$5,
+          ($6::date+time '12:00:00') AT TIME ZONE (SELECT timezone FROM users WHERE id=$1),'Own bank FX transfer') RETURNING id`,
         [userId,debit.account_id,null,debit.amount,debit.currency,debit.occurred_on]);
         debitLedger=inserted.rows[0]!.id;
         const other = await client.query<{ id:string }>(`INSERT INTO transactions(user_id,kind,source_account_id,destination_account_id,
-          amount,currency,occurred_at,description) VALUES($1,'adjustment',$2,$3,$4,$5,$6::date+time '12:00:00','Own bank FX transfer') RETURNING id`,
+          amount,currency,occurred_at,description) VALUES($1,'adjustment',$2,$3,$4,$5,
+          ($6::date+time '12:00:00') AT TIME ZONE (SELECT timezone FROM users WHERE id=$1),'Own bank FX transfer') RETURNING id`,
         [userId,null,credit.account_id,credit.amount,credit.currency,credit.occurred_on]);
         creditLedger=other.rows[0]!.id;
       }

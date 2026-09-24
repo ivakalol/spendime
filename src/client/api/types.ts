@@ -5,7 +5,8 @@ export type TransactionMethod = 'standard' | 'amortized' | 'recurring';
 
 export interface User {
   id: string; email: string; displayName: string; baseCurrency: string; timezone: string;
-  emailVerifiedAt: string | null; createdAt: string;
+  emailVerifiedAt: string | null; createdAt: string; bankingAccess: boolean; bankingEnabled: boolean;
+  bankingEnvironment?: 'sandbox' | 'production';
 }
 export interface Account {
   id: string; name: string; kind: 'cash' | 'checking' | 'savings' | 'credit' | 'investment' | 'other';
@@ -20,7 +21,7 @@ export interface Transaction {
   id: string; kind: TransactionKind; method: TransactionMethod; sourceAccountId: string | null;
   destinationAccountId: string | null; categoryId: string | null; assetId: string | null;
   liabilityId: string | null; recurringRuleId: string | null; amount: DecimalString; currency: string;
-  occurredAt: string; description: string | null; merchant: string | null; amortizationStart: string | null;
+  occurredAt: string; bankOccurredOn?: string | null; description: string | null; merchant: string | null; amortizationStart: string | null;
   amortizationEnd: string | null; dailyImpact: DecimalString | null; voidedAt: string | null; voidReason: string | null;
   createdAt: string; updatedAt: string;
   categoryLocked?: boolean;

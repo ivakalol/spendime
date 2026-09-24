@@ -17,6 +17,15 @@ export interface AppConfig {
   enableBankingPrivateKeyFile?: string;
   enableBankingPrivateKeyB64?: string;
   bankingEncryptionKeyB64?: string;
+  enableBankingProductionAppId?: string;
+  enableBankingProductionPrivateKeyFile?: string;
+  enableBankingProductionPrivateKeyB64?: string;
+  bankingProductionEncryptionKeyB64?: string;
+  bankingProductionRedirectUri?: string;
+  bankingProductionWorkerEnabled: boolean;
+  bankingOwnerUserId?: string;
+  bankingProductionEnabled: boolean;
+  sandboxSyncIntervalMinutes: number;
   geminiApiKey?: string;
   geminiModel?: string;
   geminiEnabled: boolean;
@@ -58,6 +67,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
 
   const appOrigin = env.APP_ORIGIN?.trim().replace(/\/$/, '');
+  const configuredOwner = env.BANKING_OWNER_USER_ID?.trim();
+  const bankingOwnerUserId = configuredOwner && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(configuredOwner)
+    ? configuredOwner.toLowerCase() : undefined;
   return {
     nodeEnv: nodeEnv as AppConfig['nodeEnv'],
     host: env.HOSTNAME?.trim() || '0.0.0.0',
@@ -76,10 +88,47 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...(env.ENABLE_BANKING_PRIVATE_KEY_FILE?.trim() ? { enableBankingPrivateKeyFile: env.ENABLE_BANKING_PRIVATE_KEY_FILE.trim() } : {}),
     ...(env.ENABLE_BANKING_PRIVATE_KEY_B64?.trim() ? { enableBankingPrivateKeyB64: env.ENABLE_BANKING_PRIVATE_KEY_B64.trim() } : {}),
     ...(env.BANKING_ENCRYPTION_KEY_B64?.trim() ? { bankingEncryptionKeyB64: env.BANKING_ENCRYPTION_KEY_B64.trim() } : {}),
+    ...(env.ENABLE_BANKING_PRODUCTION_APP_ID?.trim() ? { enableBankingProductionAppId: env.ENABLE_BANKING_PRODUCTION_APP_ID.trim() } : {}),
+    ...(env.ENABLE_BANKING_PRODUCTION_PRIVATE_KEY_FILE?.trim() ? { enableBankingProductionPrivateKeyFile: env.ENABLE_BANKING_PRODUCTION_PRIVATE_KEY_FILE.trim() } : {}),
+    ...(env.ENABLE_BANKING_PRODUCTION_PRIVATE_KEY_B64?.trim() ? { enableBankingProductionPrivateKeyB64: env.ENABLE_BANKING_PRODUCTION_PRIVATE_KEY_B64.trim() } : {}),
+    ...(env.BANKING_PRODUCTION_ENCRYPTION_KEY_B64?.trim() ? { bankingProductionEncryptionKeyB64: env.BANKING_PRODUCTION_ENCRYPTION_KEY_B64.trim() } : {}),
+    ...(env.BANKING_PRODUCTION_REDIRECT_URI?.trim() ? { bankingProductionRedirectUri: env.BANKING_PRODUCTION_REDIRECT_URI.trim() } : {}),
+    bankingProductionWorkerEnabled: env.BANKING_PRODUCTION_WORKER_ENABLED === '1',
+    ...(bankingOwnerUserId ? { bankingOwnerUserId } : {}),
+    bankingProductionEnabled: env.BANKING_PRODUCTION_ENABLED === '1',
+    // Applies only to Enable Banking Mock ASPSP in a non-production runtime.
+    sandboxSyncIntervalMinutes: nodeEnv === 'production' ? 360 :
+      integerInRange(env, 'BANKING_SANDBOX_SYNC_INTERVAL_MINUTES', 360, 5, 360),
     ...(env.GEMINI_API_KEY?.trim() ? { geminiApiKey: env.GEMINI_API_KEY.trim() } : {}),
     ...(env.GEMINI_MODEL?.trim() ? { geminiModel: env.GEMINI_MODEL.trim() } : {}),
     geminiEnabled: env.GEMINI_ENABLED === '1',
     geminiPaidProject: env.GEMINI_PAID_PROJECT === '1',
     geminiPrivacyApproved: env.GEMINI_PRIVACY_APPROVED === '1',
+  };
+}
+
+export function hasBankingAccess(config: AppConfig, authenticatedUserId: string): boolean {
+  return Boolean(config.bankingOwnerUserId && config.bankingOwnerUserId === authenticatedUserId.toLowerCase());
+}
+
+export function bankingRuntimeEnabled(config: AppConfig): boolean {
+  return config.nodeEnv !== 'production' || config.bankingProductionEnabled;
+}
+
+export function bankingCredentialConfig(config: AppConfig) {
+  return config.nodeEnv === 'production' ? {
+    appId: config.enableBankingProductionAppId,
+    privateKeyFile: config.enableBankingProductionPrivateKeyFile,
+    privateKeyB64: config.enableBankingProductionPrivateKeyB64,
+    encryptionKeyB64: config.bankingProductionEncryptionKeyB64,
+    redirectUri: config.bankingProductionRedirectUri,
+    environment: 'production' as const,
+  } : {
+    appId: config.enableBankingAppId,
+    privateKeyFile: config.enableBankingPrivateKeyFile,
+    privateKeyB64: config.enableBankingPrivateKeyB64,
+    encryptionKeyB64: config.bankingEncryptionKeyB64,
+    redirectUri: config.bankingRedirectUri,
+    environment: 'sandbox' as const,
   };
 }

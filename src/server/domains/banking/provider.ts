@@ -37,7 +37,8 @@ export interface BankingProvider {
 }
 
 export class BankingProviderError extends Error {
-  constructor(public readonly code: string, public readonly retryAfterSeconds?: number) {
+  constructor(public readonly code: string, public readonly retryAfterSeconds?: number,
+    public readonly httpStatus?: number) {
     super(code);
     this.name = 'BankingProviderError';
   }

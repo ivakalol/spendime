@@ -4,7 +4,7 @@ import type pg from 'pg';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
-import type { AppConfig } from './config.js';
+import { bankingCredentialConfig, bankingRuntimeEnabled, type AppConfig } from './config.js';
 import { errorHandler, notFoundHandler } from './errors.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createAccountsRouter } from './domains/accounts/routes.js';
@@ -72,13 +72,16 @@ export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: Ba
   app.use('/api/liabilities', createLiabilitiesRouter(pool));
   app.use('/api/recurring-rules', createRecurringRulesRouter(pool));
   app.use('/api/dashboard', createDashboardRouter(pool));
-  const privateKey = config.enableBankingPrivateKeyFile ? readFileSync(config.enableBankingPrivateKeyFile, 'utf8')
-    : config.enableBankingPrivateKeyB64 ? Buffer.from(config.enableBankingPrivateKeyB64, 'base64').toString('utf8') : undefined;
-  const provider = bankingProvider ?? (config.enableBankingAppId && privateKey
-    ? new EnableBankingProvider(config.enableBankingAppId, privateKey) : undefined);
-  if (provider && !config.bankingEncryptionKeyB64) throw new Error('BANKING_ENCRYPTION_KEY_B64 is required for banking');
+  const configureBankingProvider = bankingRuntimeEnabled(config) && Boolean(config.bankingOwnerUserId);
+  const credentials = bankingCredentialConfig(config);
+  const privateKey = configureBankingProvider && credentials.privateKeyFile ? readFileSync(credentials.privateKeyFile, 'utf8')
+    : configureBankingProvider && credentials.privateKeyB64 ? Buffer.from(credentials.privateKeyB64, 'base64').toString('utf8') : undefined;
+  const provider = configureBankingProvider ? (bankingProvider ?? (credentials.appId && privateKey && credentials.redirectUri
+    ? new EnableBankingProvider(credentials.appId, privateKey, credentials.environment, credentials.redirectUri) : undefined)) : undefined;
+  if (provider && !credentials.encryptionKeyB64) throw new Error('Banking encryption key is required for banking');
+  if (provider && provider.environment !== credentials.environment) throw new Error('Banking provider environment mismatch');
   app.use('/api/banking', createBankingRouter(pool, config, provider,
-    config.bankingEncryptionKeyB64 ? new BankingSecrets(config.bankingEncryptionKeyB64) : undefined));
+    credentials.encryptionKeyB64 ? new BankingSecrets(credentials.encryptionKeyB64) : undefined));
 
   const clientRoot = path.resolve(process.cwd(), 'dist/client');
   if (config.nodeEnv === 'production' && existsSync(path.join(clientRoot, 'index.html'))) {

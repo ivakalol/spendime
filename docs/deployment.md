@@ -150,6 +150,17 @@ curl -I https://spendime.ivaylo.tech/manifest.webmanifest
 curl -I https://spendime.ivaylo.tech/assets/<current-hashed-file>.js
 ```
 
+The public Privacy Policy and Terms of Service are React routes at `/privacy`
+and `/terms`; they do not require a session. Before publishing the drafts, review
+the factual and legal open items in `docs/legal-publication-review.md`. After a
+deployment, open both URLs in a signed-out browser and verify that an
+unauthenticated request receives the app shell with HTTP 200:
+
+```bash
+curl -I https://spendime.ivaylo.tech/privacy
+curl -I https://spendime.ivaylo.tech/terms
+```
+
 `sw.js` should never report a Cloudflare cache HIT. HTML and the worker should
 show revalidation/no-store intent, while the fingerprinted asset should show
 `max-age=31536000, immutable`.

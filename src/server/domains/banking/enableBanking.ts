@@ -11,6 +11,13 @@ const AUTHORIZATION_ORIGINS = new Set([
 const b64 = (value: string) => Buffer.from(value).toString('base64url');
 const trim = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) || null : null;
 
+export function retryAfterSeconds(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const seconds = /^\d+$/.test(value.trim()) ? Number(value.trim()) :
+    (Date.parse(value) - now) / 1000;
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
 function validAuthorizationUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   try {
@@ -24,15 +31,23 @@ function validAuthorizationUrl(value: unknown): value is string {
 
 export class EnableBankingProvider implements BankingProvider {
   readonly id = 'enable_banking';
-  readonly environment = 'sandbox';
-  private sandboxVerified: Promise<void> | null = null;
-  constructor(private readonly appId: string, private readonly privateKey: string) {}
+  readonly environment: 'sandbox' | 'production';
+  private applicationVerified: Promise<void> | null = null;
+  constructor(private readonly appId: string, private readonly privateKey: string,
+    environment: 'sandbox' | 'production' = 'sandbox', private readonly redirectUri?: string) {
+    this.environment = environment;
+  }
 
-  private async ensureSandbox(): Promise<void> {
-    if (!this.sandboxVerified) this.sandboxVerified = this.rawRequest('/application').then((data) => {
-      if (data.environment !== 'SANDBOX' || data.active !== true) throw new BankingProviderError('sandbox_application_required');
-    }).catch((error) => { this.sandboxVerified = null; throw error; });
-    await this.sandboxVerified;
+  private async ensureApplication(): Promise<void> {
+    if (!this.applicationVerified) this.applicationVerified = this.rawRequest('/application').then((data) => {
+      const expected = this.environment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+      if (data.environment !== expected || data.active !== true ||
+          (this.environment === 'production' && (data.kid !== this.appId ||
+            !Array.isArray(data.services) || !data.services.includes('AIS') ||
+            !Array.isArray(data.redirect_urls) || !data.redirect_urls.includes(this.redirectUri))))
+        throw new BankingProviderError(this.environment === 'production' ? 'production_application_required' : 'sandbox_application_required');
+    }).catch((error) => { this.applicationVerified = null; throw error; });
+    await this.applicationVerified;
   }
 
   private jwt(): string {
@@ -43,7 +58,7 @@ export class EnableBankingProvider implements BankingProvider {
   }
 
   private async request(path: string, method = 'GET', body?: unknown): Promise<Json> {
-    await this.ensureSandbox();
+    await this.ensureApplication();
     return this.rawRequest(path, method, body);
   }
 
@@ -59,8 +74,7 @@ export class EnableBankingProvider implements BankingProvider {
       if (!response.ok) {
         const payload = await response.json().catch(() => ({})) as Json;
         const code = typeof payload.error === 'string' ? payload.error : typeof payload.code === 'string' ? payload.code : `http_${response.status}`;
-        const retryAfter = Number(response.headers.get('retry-after'));
-        throw new BankingProviderError(code, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
+        throw new BankingProviderError(code,retryAfterSeconds(response.headers.get('retry-after')),response.status);
       }
       if (response.status === 204) return {};
       return await response.json() as Json;
@@ -80,6 +94,8 @@ export class EnableBankingProvider implements BankingProvider {
   }
 
   async begin(input: { institution: BankInstitution; state: string; redirectUri: string }): Promise<{ url: string }> {
+    if (this.environment === 'production' && input.redirectUri !== this.redirectUri)
+      throw new BankingProviderError('invalid_production_redirect');
     const validity = Math.min(90 * 86400, input.institution.maximumConsentValiditySeconds ?? 90 * 86400);
     if (validity <= 120) throw new BankingProviderError('invalid_consent_validity');
     const data = await this.request('/auth', 'POST', {
@@ -128,7 +144,11 @@ export class EnableBankingProvider implements BankingProvider {
         entryReference: trim(x.entry_reference, 250), status: x.status,
         direction: (x.credit_debit_indicator === 'DBIT' ? 'debit' : 'credit') as BankTransaction['direction'],
         amount: x.transaction_amount?.amount, currency: x.transaction_amount?.currency,
-        occurredOn: x.booking_date ?? x.transaction_date ?? x.value_date,
+        // Booked movements use their booking date. Pending movements may only
+        // have a transaction or value date; these never post before BOOK.
+        occurredOn: x.status === 'BOOK'
+          ? x.booking_date ?? x.transaction_date ?? x.value_date
+          : x.transaction_date ?? x.value_date ?? x.booking_date,
         merchant: trim(party?.name, 120), description: trim(description, 500),
         counterpartyHash: null,
       };

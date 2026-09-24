@@ -4,7 +4,6 @@ import { withUserTransaction } from '../../db/transactions.js';
 import { voidTransaction } from '../transactions/repository.js';
 import type { BankingProvider, BankTransaction } from './provider.js';
 import { BankingProviderError } from './provider.js';
-import { categorizeDeterministically } from './categorize.js';
 import type { BankingSecrets } from './secrets.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -13,6 +12,18 @@ const amount = (value: string) => {
   return /^\d{1,15}(\.\d{1,4})?$/.test(normalized) && Number(normalized) > 0 ? normalized : null;
 };
 const signedBalance = (value: string) => /^-?\d{1,15}(\.\d{1,4})?$/.test(value) ? value : null;
+const DEFAULT_SYNC_INTERVAL_MINUTES = 360;
+
+export function effectiveSyncIntervalMinutes(
+  provider: Pick<BankingProvider, 'id' | 'environment'>,
+  connection: { environment: string; institutionName: string },
+  configuredMinutes = DEFAULT_SYNC_INTERVAL_MINUTES,
+): number {
+  return provider.id === 'enable_banking' && provider.environment === 'sandbox' &&
+    connection.environment === 'sandbox' && connection.institutionName === 'Mock ASPSP' &&
+    Number.isInteger(configuredMinutes) && configuredMinutes >= 5 && configuredMinutes <= 360
+    ? configuredMinutes : DEFAULT_SYNC_INTERVAL_MINUTES;
+}
 
 interface Link { id: string; connection_id: string; provider_account_id: string; account_id: string | null; link_mode: 'new' | 'existing' | null; currency: string; last_synced_at: Date | null }
 
@@ -82,7 +93,7 @@ export async function postStagedTransaction(client: pg.PoolClient, userId: strin
   }
   const kind = row.direction === 'debit' ? 'expense' : 'income';
   let refundId: string | null = null;
-  let categoryId: string | null = null;
+  const categoryId: string | null = null;
   if (kind === 'income' && row.merchant && /\b(refund|returned|reversal|chargeback)\b|връщане|възстановяване/i.test(row.description ?? '')) {
     const matches = await client.query<{ id: string; category_id: string | null }>(`
       SELECT t.id,t.category_id FROM bank_transactions bt JOIN transactions t ON t.id=bt.ledger_transaction_id
@@ -93,32 +104,41 @@ export async function postStagedTransaction(client: pg.PoolClient, userId: strin
         AND lower(coalesce(t.merchant,''))=lower($3)
         AND t.occurred_at::date BETWEEN $4::date-interval '90 days' AND $4::date
       LIMIT 2`, [row.bank_account_link_id,row.amount,row.merchant,row.occurred_on]);
-    if (matches.rowCount === 1) { refundId = matches.rows[0]!.id; categoryId = matches.rows[0]!.category_id; }
+    if (matches.rowCount === 1) refundId = matches.rows[0]!.id;
   }
-  if (!categoryId) categoryId = await categorizeDeterministically(client,userId,row);
   const actualKind = refundId ? 'refund' : kind;
   const result = await client.query<{ id: string }>(`
     INSERT INTO transactions(user_id,kind,method,source_account_id,destination_account_id,
       category_id,amount,currency,occurred_at,description,merchant)
-    VALUES($1,$2,'standard',$3,$4,$5,$6,$7,$8::date + time '12:00:00',$9,$10) RETURNING id`,
+    VALUES($1,$2,'standard',$3,$4,$5,$6,$7,
+      ($8::date + time '12:00:00') AT TIME ZONE (SELECT timezone FROM users WHERE id=$1),$9,$10) RETURNING id`,
     [userId,actualKind,row.direction==='debit'?row.account_id:null,row.direction==='credit'?row.account_id:null,
       categoryId,row.amount,row.currency,row.occurred_on,row.description,row.merchant]);
   const ledgerId = result.rows[0]!.id;
   if (refundId) await client.query(`INSERT INTO bank_refund_links(refund_transaction_id,user_id,original_transaction_id) VALUES($1,$2,$3)`, [ledgerId,userId,refundId]);
   await client.query(`UPDATE bank_transactions SET ledger_transaction_id=$2,match_status='posted',classification_source=$3 WHERE id=$1`,
-    [row.id,ledgerId,refundId?'refund':categoryId?'deterministic':'uncategorized']);
+    [row.id,ledgerId,refundId?'refund':'uncategorized']);
 }
 
-export async function syncConnection(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets, userId: string, connectionId: string, force = false): Promise<void> {
+export async function syncConnection(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets, userId: string,
+  connectionId: string, force = false, sandboxIntervalMinutes = DEFAULT_SYNC_INTERVAL_MINUTES): Promise<boolean> {
+  const lockClient = await pool.connect();
+  let locked = false;
+  try {
+  locked = (await lockClient.query<{ locked: boolean }>(
+    'SELECT pg_try_advisory_lock(hashtextextended($1::text,0)) AS locked',[connectionId])).rows[0]?.locked ?? false;
+  if (!locked) return false;
   const connection = await withUserTransaction(pool,userId,async (client) => {
-    const result = await client.query<{ provider_session_id: string | null; consent_expires_at: Date | null }>(`
+    const result = await client.query<{ provider_session_id: string; consent_expires_at: Date | null; environment: string; institution_name: string }>(`
       UPDATE bank_connections SET sync_lease_until=now()+interval '5 minutes'
-      WHERE id=$1 AND status='active' AND (sync_lease_until IS NULL OR sync_lease_until<now())
+      WHERE id=$1 AND provider=$3 AND environment=$4 AND provider_session_id IS NOT NULL
+        AND status='active' AND (sync_lease_until IS NULL OR sync_lease_until<now())
         AND ($2::boolean OR next_sync_at IS NULL OR next_sync_at<=now())
-      RETURNING provider_session_id,consent_expires_at`, [connectionId,force]);
+      RETURNING provider_session_id,consent_expires_at,environment,institution_name`,
+      [connectionId,force,provider.id,provider.environment]);
     return result.rows[0];
   });
-  if (!connection?.provider_session_id) return;
+  if (!connection) return false;
   try {
     if (connection.consent_expires_at && connection.consent_expires_at.getTime() <= Date.now()) throw new BankingProviderError('EXPIRED_SESSION');
     if (await provider.sessionStatus(secrets.decrypt(connection.provider_session_id)) !== 'active') throw new BankingProviderError('EXPIRED_SESSION');
@@ -146,14 +166,27 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
         if (page === 499) throw new BankingProviderError('pagination_limit');
       }
       await withUserTransaction(pool,userId,async (client) => {
-        const currentLink = (await client.query<{ account_id:string|null; link_mode:'new'|'existing'|null }>(
-          'SELECT account_id,link_mode FROM bank_account_links WHERE id=$1 FOR UPDATE',[link.id])).rows[0];
+        const currentLink = (await client.query<{ account_id:string|null; link_mode:'new'|'existing'|null; automatic_post_after:Date|null }>(
+          'SELECT account_id,link_mode,automatic_post_after FROM bank_account_links WHERE id=$1 FOR UPDATE',[link.id])).rows[0];
         if (currentLink?.account_id) {
-          const candidates = await client.query<{ id: string }>(`SELECT bt.id FROM bank_transactions bt
+          const candidates = await client.query<{ id: string; eligible_for_automatic_post:boolean; possible_manual_duplicate:boolean }>(`SELECT bt.id,
+            (bt.first_seen_at > l.automatic_post_after AND
+             bt.occurred_on > (l.automatic_post_after AT TIME ZONE u.timezone)::date) AS eligible_for_automatic_post,
+            EXISTS(SELECT 1 FROM transactions t WHERE t.user_id=bt.user_id AND t.voided_at IS NULL
+              AND t.amount=bt.amount AND t.currency=bt.currency
+              AND (t.occurred_at AT TIME ZONE u.timezone)::date BETWEEN bt.occurred_on-3 AND bt.occurred_on+3
+              AND ((bt.direction='debit' AND t.source_account_id=l.account_id)
+                OR (bt.direction='credit' AND t.destination_account_id=l.account_id))
+              AND NOT EXISTS(SELECT 1 FROM bank_transactions linked WHERE linked.ledger_transaction_id=t.id)) AS possible_manual_duplicate
+            FROM bank_account_links l JOIN users u ON u.id=l.user_id
+            JOIN bank_transactions bt ON bt.bank_account_link_id=l.id
             WHERE bt.bank_account_link_id=$1 AND bt.status='BOOK' AND bt.match_status='new'
             ORDER BY bt.occurred_on,CASE bt.direction WHEN 'debit' THEN 0 ELSE 1 END,bt.id`, [link.id]);
           for (const candidate of candidates.rows) {
-            if (currentLink.link_mode === 'existing') await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[candidate.id]);
+            if (candidate.possible_manual_duplicate ||
+                ((provider.environment === 'production' || currentLink.link_mode === 'existing') &&
+                  !candidate.eligible_for_automatic_post))
+              await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[candidate.id]);
             else await postStagedTransaction(client,userId,candidate.id);
           }
         }
@@ -161,31 +194,58 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
       });
     }
     await withUserTransaction(pool,userId,async (client) => {
-      await client.query(`UPDATE bank_connections SET last_synced_at=now(),next_sync_at=now()+interval '6 hours',
-        sync_lease_until=NULL,error_code=NULL WHERE id=$1`,[connectionId]);
+      await client.query(`UPDATE bank_connections SET last_synced_at=now(),
+        next_sync_at=now()+($2::integer*interval '1 minute'),sync_lease_until=NULL,error_code=NULL WHERE id=$1`,
+        [connectionId,effectiveSyncIntervalMinutes(provider,
+          { environment:connection.environment,institutionName:connection.institution_name },sandboxIntervalMinutes)]);
     });
   } catch (error) {
     const expired = error instanceof BankingProviderError && error.code === 'EXPIRED_SESSION';
-    const limited = error instanceof BankingProviderError && (error.code.includes('RATE_LIMIT') || error.code==='http_429');
+    const limited = error instanceof BankingProviderError &&
+      (error.code.includes('RATE_LIMIT') || error.code==='http_429' || error.httpStatus===429);
+    const retryAfterMs = error instanceof BankingProviderError && error.retryAfterSeconds
+      ? error.retryAfterSeconds*1000 : 0;
     await withUserTransaction(pool,userId,async (client) => {
       await client.query(`UPDATE bank_connections SET status=$2,error_code=$3,next_sync_at=$4,
         sync_lease_until=NULL WHERE id=$1`, [connectionId,expired?'expired':'active',expired?'consent_expired':limited?'rate_limited':'sync_failed',
-        expired?null:new Date(Date.now()+(limited?6:1)*3600_000)]);
+        expired?null:new Date(Date.now()+Math.max((limited?6:1)*3600_000,retryAfterMs))]);
     });
     if (!limited && !expired) throw error;
   }
+  return true;
+  } finally {
+    if (locked) {
+      try { await lockClient.query('SELECT pg_advisory_unlock(hashtextextended($1::text,0))',[connectionId]); }
+      catch { lockClient.release(true); throw new Error('Could not release bank synchronization lock'); }
+    }
+    lockClient.release();
+  }
 }
 
-export async function syncDueConnections(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets): Promise<void> {
-  const users = await pool.query<{ id: string }>('SELECT id FROM users WHERE status=\'active\'');
-  for (const user of users.rows) {
-    const ids = await withUserTransaction(pool,user.id,async (client) =>
-      (await client.query<{ id: string }>(`SELECT id FROM bank_connections WHERE status='active'
-        AND next_sync_at<=now() AND (sync_lease_until IS NULL OR sync_lease_until<now()) LIMIT 10`)).rows);
-    for (const { id } of ids) {
-      try { await syncConnection(pool,provider,secrets,user.id,id); } catch (error) {
-        console.error('Bank sync failed', { name: error instanceof Error ? error.name : 'UnknownError' });
-      }
+export async function rescheduleSandboxMockConnections(pool: pg.Pool, provider: BankingProvider,
+  sandboxIntervalMinutes: number, ownerUserId: string): Promise<number> {
+  const interval = effectiveSyncIntervalMinutes(provider,
+    { environment:'sandbox',institutionName:'Mock ASPSP' },sandboxIntervalMinutes);
+  if (interval === DEFAULT_SYNC_INTERVAL_MINUTES) return 0;
+  return withUserTransaction(pool,ownerUserId,async(client) =>
+    (await client.query(`UPDATE bank_connections SET
+        next_sync_at=last_synced_at+($1::integer*interval '1 minute')
+        WHERE user_id=$3 AND provider=$2 AND environment='sandbox' AND institution_name='Mock ASPSP'
+          AND status='active' AND error_code IS NULL AND last_synced_at IS NOT NULL
+          AND next_sync_at>last_synced_at+($1::integer*interval '1 minute')`,
+      [interval,provider.id,ownerUserId])).rowCount ?? 0);
+}
+
+export async function syncDueConnections(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets,
+  sandboxIntervalMinutes: number, ownerUserId: string): Promise<void> {
+  const ids = await withUserTransaction(pool,ownerUserId,async (client) =>
+    (await client.query<{ id: string }>(`SELECT id FROM bank_connections WHERE provider=$1 AND environment=$2
+      AND user_id=$3 AND status='active' AND next_sync_at<=now()
+      AND (sync_lease_until IS NULL OR sync_lease_until<now()) LIMIT 10`,
+      [provider.id,provider.environment,ownerUserId])).rows);
+  for (const { id } of ids) {
+    try { await syncConnection(pool,provider,secrets,ownerUserId,id,false,sandboxIntervalMinutes); } catch (error) {
+      console.error('Bank sync failed', { name: error instanceof Error ? error.name : 'UnknownError' });
     }
   }
 }
