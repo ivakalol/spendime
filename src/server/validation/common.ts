@@ -4,8 +4,9 @@ export const uuidSchema = z.string().uuid();
 export const currencySchema = z.string().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase());
 export const positiveMoneySchema = z
   .string()
-  .regex(/^(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?$/, 'Use a positive decimal string with at most 4 decimal places.')
-  .refine((value) => !/^0(?:\.0+)?$/.test(value), 'Amount must be greater than zero.');
+  .regex(/^(?:0|[1-9]\d{0,14})(?:[.,]\d{1,4})?$/, 'Use a positive decimal string with at most 4 decimal places.')
+  .refine((value) => !/^0(?:[.,]0+)?$/.test(value), 'Amount must be greater than zero.')
+  .transform((value) => value.replace(',', '.'));
 export const nonnegativeMoneySchema = z
   .string()
   .regex(/^(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?$/, 'Use a nonnegative decimal string with at most 4 decimal places.');
