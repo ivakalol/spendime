@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.staging.example
 
 # Node / Next.js
 node_modules/

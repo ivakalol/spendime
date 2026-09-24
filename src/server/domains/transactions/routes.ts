@@ -16,7 +16,7 @@ import { createTransaction, editTransaction } from './service.js';
 const nullableId = uuidSchema.nullable().optional().default(null);
 const transactionSchema = z.object({
   kind: z.enum([
-    'expense', 'income', 'transfer', 'asset_purchase', 'asset_sale',
+    'expense', 'income', 'refund', 'transfer', 'asset_purchase', 'asset_sale',
     'liability_drawdown', 'liability_payment', 'adjustment',
   ]),
   method: z.enum(['standard', 'amortized', 'recurring']).default('standard'),
@@ -53,7 +53,7 @@ const transactionSchema = z.object({
   const destination = Boolean(value.destinationAccountId);
   const validAccounts =
     (value.kind === 'expense' && source && !destination) ||
-    (value.kind === 'income' && !source && destination) ||
+    (['income','refund'].includes(value.kind) && !source && destination) ||
     (value.kind === 'transfer' && source && destination &&
       value.sourceAccountId !== value.destinationAccountId) ||
     (value.kind === 'asset_purchase' && source && !destination && Boolean(value.assetId)) ||
@@ -70,7 +70,7 @@ const listSchema = paginationSchema.extend({
   accountId: uuidSchema.optional(),
   categoryId: uuidSchema.optional(),
   kind: z.enum([
-    'expense', 'income', 'transfer', 'asset_purchase', 'asset_sale',
+    'expense', 'income', 'refund', 'transfer', 'asset_purchase', 'asset_sale',
     'liability_drawdown', 'liability_payment', 'adjustment',
   ]).optional(),
   assetId: uuidSchema.optional(),
@@ -128,7 +128,12 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
             'merchant','amortizationStart','amortizationEnd',
           ]),...request.body,
         }) as TransactionWrite;
-        return requireRow(await editTransaction(client, id, input));
+        const edited = requireRow(await editTransaction(client, id, input));
+        if (Object.hasOwn(request.body, 'categoryId') && request.body.categoryId !== current.categoryId) {
+          await client.query(`UPDATE transactions SET category_locked=true WHERE id=$1
+            AND EXISTS(SELECT 1 FROM bank_transactions WHERE ledger_transaction_id=$1)`, [id]);
+        }
+        return edited;
       });
       response.json({ data });
     } catch (error) { translateDatabaseError(error); }

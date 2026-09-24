@@ -8,7 +8,7 @@ import {
   readSessionToken,
   setSessionCookie,
 } from '../auth/session.js';
-import type { AppConfig } from '../config.js';
+import { bankingRuntimeEnabled, hasBankingAccess, type AppConfig } from '../config.js';
 import { requireAuthentication } from '../middleware/authenticate.js';
 import { requireSameOrigin } from '../middleware/origin.js';
 import { createRateLimiter } from '../middleware/rateLimit.js';
@@ -48,7 +48,10 @@ export function createAuthRouter(pool: pg.Pool, config: AppConfig): Router {
   });
 
   router.get('/me', requireAuthentication(pool), (request, response) => {
-    response.status(200).json({ data: { user: request.auth!.user } });
+    const bankingAccess = hasBankingAccess(config, request.auth!.user.id);
+    response.status(200).json({ data: { user: { ...request.auth!.user, bankingAccess,
+      bankingEnabled: bankingAccess && bankingRuntimeEnabled(config),
+      ...(bankingAccess ? { bankingEnvironment: config.nodeEnv === 'production' ? 'production' : 'sandbox' } : {}) } } });
   });
   return router;
 }

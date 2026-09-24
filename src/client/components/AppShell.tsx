@@ -9,7 +9,7 @@ import { useLanguage } from '../i18n';
 import { Button, Modal } from './ui';
 
 const primary = [{ to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true }, { to: '/transactions', label: 'Transactions', icon: ReceiptText }, { to: '/accounts', label: 'Accounts', icon: WalletCards }, { to: '/assets', label: 'Assets', icon: BarChart3 }];
-const secondary = [{ to: '/liabilities', label: 'Liabilities', icon: Landmark }, { to: '/recurring', label: 'Recurring', icon: CalendarClock }, { to: '/categories', label: 'Categories', icon: Shapes }, { to: '/settings', label: 'Settings', icon: Settings }];
+const secondary = [{ to: '/banking', label: 'Banking', icon: Landmark }, { to: '/liabilities', label: 'Liabilities', icon: Landmark }, { to: '/recurring', label: 'Recurring', icon: CalendarClock }, { to: '/categories', label: 'Categories', icon: Shapes }, { to: '/settings', label: 'Settings', icon: Settings }];
 type NavigationItem = (typeof primary)[number] | (typeof secondary)[number];
 
 function NavItem({ item, onClick, light = false }: { item: NavigationItem; onClick?: () => void; light?: boolean }) {
@@ -26,11 +26,12 @@ export function AppShell() {
   const { t } = useLanguage();
   const logout = useMutation({ mutationFn: () => apiRequest('/api/auth/logout', { method: 'POST' }), onSuccess: () => { queryClient.clear(); queryClient.setQueryData(keys.me, null); navigate('/login', { replace: true }); } });
 
+  const visibleSecondary = secondary.filter((item) => item.to !== '/banking' || me.data?.bankingAccess);
   return <div className="min-h-dvh lg:grid lg:grid-cols-[268px_1fr]">
     <aside className="app-sidebar fixed inset-y-0 left-0 hidden w-[268px] flex-col overflow-hidden bg-brand px-4 safe-top safe-bottom lg:flex">
       <div aria-hidden="true" className="pointer-events-none absolute -right-28 -top-20 size-72 rounded-full border border-white/[.06] bg-white/[.025]" />
       <div className="relative mb-8 flex items-center gap-3 px-2 text-lg font-bold tracking-tight text-white"><span className="grid size-11 place-items-center rounded-2xl bg-white/10 shadow-inner ring-1 ring-white/10"><CircleDollarSign /></span>Spendime</div>
-      <nav className="relative grid gap-1" aria-label="Primary navigation">{primary.map((item) => <NavItem key={item.to} item={item} />)}<div className="my-3 h-px bg-white/10" />{secondary.map((item) => <NavItem key={item.to} item={item} />)}</nav>
+      <nav className="relative grid gap-1" aria-label="Primary navigation">{primary.map((item) => <NavItem key={item.to} item={item} />)}<div className="my-3 h-px bg-white/10" />{visibleSecondary.map((item) => <NavItem key={item.to} item={item} />)}</nav>
       <div className="relative mt-auto rounded-2xl border border-white/[.08] bg-white/[.06] p-3.5 text-white shadow-inner"><p className="truncate text-sm font-semibold">{me.data?.displayName}</p><p className="mt-0.5 truncate text-xs text-white/50">{me.data?.email}</p><button onClick={() => logout.mutate()} disabled={logout.isPending} className="control-press mt-3 flex min-h-10 w-full items-center gap-2 rounded-xl px-2 text-xs font-semibold text-white/60 outline-none hover:bg-white/[.07] hover:text-white focus-visible:ring-2 focus-visible:ring-accent active:scale-[.98] disabled:opacity-50"><LogOut className="size-4" />{logout.isPending ? t('Signing out…') : t('Sign out')}</button></div>
     </aside>
     <main className="app-main min-w-0 lg:col-start-2"><div className="animate-enter mx-auto max-w-[1380px] px-4 safe-top sm:px-6 lg:px-9 lg:pt-8 xl:px-12"><Outlet /></div></main>
@@ -40,7 +41,7 @@ export function AppShell() {
       <MobileItem item={primary[3]!} />
       <button onClick={() => setMore(true)} className="control-press flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-semibold text-muted outline-none hover:bg-brand/[.05] focus-visible:ring-2 focus-visible:ring-accent active:scale-95"><Menu className="size-[1.15rem]" />{t('More')}</button>
     </nav>
-    <Modal open={more} onClose={() => setMore(false)} title={t('More')} description={t('Accounts, planning, and preferences.')}><nav className="grid gap-1.5" aria-label="More navigation">{[primary[2]!, ...secondary].map((item) => <NavItem key={item.to} item={item} light onClick={() => setMore(false)} />)}</nav><Button variant="secondary" className="mt-4 w-full" disabled={logout.isPending} onClick={() => logout.mutate()}><LogOut className="size-4" />{logout.isPending ? t('Signing out…') : t('Sign out')}</Button></Modal>
+    <Modal open={more} onClose={() => setMore(false)} title={t('More')} description={t('Accounts, planning, and preferences.')}><nav className="grid gap-1.5" aria-label="More navigation">{[primary[2]!, ...visibleSecondary].map((item) => <NavItem key={item.to} item={item} light onClick={() => setMore(false)} />)}</nav><Button variant="secondary" className="mt-4 w-full" disabled={logout.isPending} onClick={() => logout.mutate()}><LogOut className="size-4" />{logout.isPending ? t('Signing out…') : t('Sign out')}</Button></Modal>
     {quick && <QuickAdd open onClose={() => setQuick(false)} />}
   </div>;
 }

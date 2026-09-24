@@ -1,5 +1,7 @@
 # Spendime
 
+Banking sandbox integration setup and status: [docs/banking-integration.md](docs/banking-integration.md).
+
 Spendime is a self-hosted personal-finance application focused on true financial
 utility: ordinary spending, amortized costs, recurring entries, liabilities,
 and asset growth.

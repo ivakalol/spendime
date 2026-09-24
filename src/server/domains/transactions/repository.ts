@@ -9,7 +9,11 @@ export const TRANSACTION_SELECT = `SELECT
   t.liability_id AS "liabilityId", t.recurring_rule_id AS "recurringRuleId",
   t.amount, t.currency,
   to_char(t.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt",
-  t.description, t.merchant,
+  (SELECT CASE WHEN (t.occurred_at AT TIME ZONE (SELECT timezone FROM users WHERE id=t.user_id))::date=bt.occurred_on
+      OR t.occurred_at=(bt.occurred_on+time '12:00:00') AT TIME ZONE 'UTC'
+      THEN bt.occurred_on::text ELSE NULL END
+    FROM bank_transactions bt WHERE bt.ledger_transaction_id=t.id ORDER BY bt.occurred_on LIMIT 1) AS "bankOccurredOn",
+  t.description, t.merchant, t.category_locked AS "categoryLocked",
   t.amortization_start AS "amortizationStart",
   t.amortization_end AS "amortizationEnd",
   t.daily_impact AS "dailyImpact",

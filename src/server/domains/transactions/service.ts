@@ -27,7 +27,7 @@ async function validateReferences(
     const result = await client.query<{ kind: string; is_archived: boolean }>(
       'SELECT kind, is_archived FROM categories WHERE id = $1', [input.categoryId]);
     const category = result.rows[0];
-    const expected = input.kind === 'income' ? 'income' : input.kind === 'expense' ? 'expense' : null;
+    const expected = input.kind === 'income' ? 'income' : ['expense','refund'].includes(input.kind) ? 'expense' : null;
     if (!category || (category.is_archived && input.categoryId !== current?.categoryId) ||
         (expected && ![expected, 'both'].includes(category.kind))) {
       throw new ApiError(404, 'related_resource_not_found', 'A related resource was not found.');

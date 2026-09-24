@@ -15,6 +15,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src/server.ts", "src/server/**/*.ts", "tests/*.ts", "vitest.config.ts"],
+  "include": ["src/server.ts", "src/banking-worker.ts", "src/server/**/*.ts", "tests/*.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }
