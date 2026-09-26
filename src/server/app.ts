@@ -1,3 +1,4 @@
+import { requireSameOrigin } from './middleware/origin.js';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 import type pg from 'pg';
@@ -64,7 +65,7 @@ export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: Ba
     response.setHeader('Cache-Control', CACHE_CONTROL.api);
     next();
   });
-  app.use('/api/auth', createAuthRouter(pool, config));
+  app.use('/api', (request, response, next) => ['GET','HEAD','OPTIONS'].includes(request.method) ? next() : requireSameOrigin(config)(request,response,next));
   app.use('/api/accounts', createAccountsRouter(pool));
   app.use('/api/categories', createCategoriesRouter(pool));
   app.use('/api/transactions', createTransactionsRouter(pool));
@@ -72,7 +73,7 @@ export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: Ba
   app.use('/api/liabilities', createLiabilitiesRouter(pool));
   app.use('/api/recurring-rules', createRecurringRulesRouter(pool));
   app.use('/api/dashboard', createDashboardRouter(pool));
-  const configureBankingProvider = bankingRuntimeEnabled(config) && Boolean(config.bankingOwnerUserId);
+  const configureBankingProvider = bankingRuntimeEnabled(config) && Boolean(config.bankingOwnerUserId) && Boolean(bankingCredentialConfig(config).encryptionKeyB64);
   const credentials = bankingCredentialConfig(config);
   const privateKey = configureBankingProvider && credentials.privateKeyFile ? readFileSync(credentials.privateKeyFile, 'utf8')
     : configureBankingProvider && credentials.privateKeyB64 ? Buffer.from(credentials.privateKeyB64, 'base64').toString('utf8') : undefined;
@@ -80,6 +81,7 @@ export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: Ba
     ? new EnableBankingProvider(credentials.appId, privateKey, credentials.environment, credentials.redirectUri) : undefined)) : undefined;
   if (provider && !credentials.encryptionKeyB64) throw new Error('Banking encryption key is required for banking');
   if (provider && provider.environment !== credentials.environment) throw new Error('Banking provider environment mismatch');
+  app.use('/api/auth', createAuthRouter(pool, config, Boolean(provider && credentials.encryptionKeyB64)));
   app.use('/api/banking', createBankingRouter(pool, config, provider,
     credentials.encryptionKeyB64 ? new BankingSecrets(credentials.encryptionKeyB64) : undefined));
 

@@ -31,6 +31,7 @@ const SAFE_USER_COLUMNS = `
   email::text AS email,
   display_name AS "displayName",
   base_currency AS "baseCurrency",
+  onboarding_completed_at AS "onboardingCompletedAt",
   timezone,
   email_verified_at AS "emailVerifiedAt",
   created_at AS "createdAt"
@@ -131,6 +132,7 @@ export async function findSession(
          'email', u.email::text,
          'displayName', u.display_name,
          'baseCurrency', u.base_currency,
+         'onboardingCompletedAt', u.onboarding_completed_at,
          'timezone', u.timezone,
          'emailVerifiedAt', u.email_verified_at,
          'createdAt', u.created_at

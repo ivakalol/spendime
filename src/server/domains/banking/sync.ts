@@ -93,7 +93,7 @@ export async function postStagedTransaction(client: pg.PoolClient, userId: strin
   }
   const kind = row.direction === 'debit' ? 'expense' : 'income';
   let refundId: string | null = null;
-  const categoryId: string | null = null;
+  let categoryId: string | null = null;
   if (kind === 'income' && row.merchant && /\b(refund|returned|reversal|chargeback)\b|връщане|възстановяване/i.test(row.description ?? '')) {
     const matches = await client.query<{ id: string; category_id: string | null }>(`
       SELECT t.id,t.category_id FROM bank_transactions bt JOIN transactions t ON t.id=bt.ledger_transaction_id
@@ -104,7 +104,7 @@ export async function postStagedTransaction(client: pg.PoolClient, userId: strin
         AND lower(coalesce(t.merchant,''))=lower($3)
         AND t.occurred_at::date BETWEEN $4::date-interval '90 days' AND $4::date
       LIMIT 2`, [row.bank_account_link_id,row.amount,row.merchant,row.occurred_on]);
-    if (matches.rowCount === 1) refundId = matches.rows[0]!.id;
+    if (matches.rowCount === 1) { refundId = matches.rows[0]!.id; categoryId = matches.rows[0]!.category_id; }
   }
   const actualKind = refundId ? 'refund' : kind;
   const result = await client.query<{ id: string }>(`

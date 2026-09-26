@@ -1,3 +1,7 @@
+import { z } from 'zod';
+import { currencySchema } from '../validation/common.js';
+import { inUserTransaction } from './helpers.js';
+import { ApiError } from '../errors.js';
 import { Router, type Request } from 'express';
 import type pg from 'pg';
 import { revokeSession } from '../auth/repository.js';
@@ -21,7 +25,7 @@ function requestMetadata(request: Request): { userAgent: string | null; ipAddres
   };
 }
 
-export function createAuthRouter(pool: pg.Pool, config: AppConfig): Router {
+export function createAuthRouter(pool: pg.Pool, config: AppConfig, providerReady = false): Router {
   const router = Router();
   const sameOrigin = requireSameOrigin(config);
   const rateLimit = createRateLimiter(config.authRateLimitMax, config.authRateLimitWindowMs);
@@ -50,8 +54,20 @@ export function createAuthRouter(pool: pg.Pool, config: AppConfig): Router {
   router.get('/me', requireAuthentication(pool), (request, response) => {
     const bankingAccess = hasBankingAccess(config, request.auth!.user.id);
     response.status(200).json({ data: { user: { ...request.auth!.user, bankingAccess,
-      bankingEnabled: bankingAccess && bankingRuntimeEnabled(config),
+      bankingEnabled: bankingAccess && bankingRuntimeEnabled(config) && providerReady,
+      bankingStatus: !bankingAccess ? 'restricted' : !bankingRuntimeEnabled(config) ? 'disabled' : !providerReady ? 'unconfigured' : 'ready',
       ...(bankingAccess ? { bankingEnvironment: config.nodeEnv === 'production' ? 'production' : 'sandbox' } : {}) } } });
+  });
+  router.patch('/preferences', requireAuthentication(pool), sameOrigin, async (request, response) => {
+    const input = z.object({ baseCurrency: currencySchema.optional(), timezone: z.string().max(100).optional(), completeOnboarding: z.literal(true).optional() }).strict().parse(request.body);
+    await inUserTransaction(pool, request, async (client, userId) => {
+      if (input.timezone && !(await client.query('SELECT 1 FROM pg_timezone_names WHERE name=$1', [input.timezone])).rowCount)
+        throw new ApiError(400, 'invalid_timezone', 'Choose a valid timezone.');
+      await client.query(`UPDATE users SET base_currency=COALESCE($2,base_currency), timezone=COALESCE($3,timezone),
+        onboarding_completed_at=CASE WHEN $4 THEN COALESCE(onboarding_completed_at,now()) ELSE onboarding_completed_at END
+        WHERE id=$1`, [userId,input.baseCurrency ?? null,input.timezone ?? null,input.completeOnboarding ?? false]);
+    });
+    response.json({ data: { saved: true } });
   });
   return router;
 }

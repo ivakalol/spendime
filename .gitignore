@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.staging.example
+!.env.sandbox.example
 
 # Node / Next.js
 node_modules/

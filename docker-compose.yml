@@ -45,6 +45,7 @@ services:
     stop_grace_period: 30s
     networks:
       - spendime_internal
+      
 
   app:
     build:
@@ -106,6 +107,15 @@ services:
     stop_grace_period: 15s
     networks:
       - spendime_internal
+
+    volumes:
+      - type: bind
+        source: /home/ivko/.config/spendime/secrets/enable-banking-production.pem
+        target: /run/secrets/enable-banking-production.pem
+        read_only: true
+        bind:
+          create_host_path: false
+
 
   auth-test:
     profiles: ["test"]
