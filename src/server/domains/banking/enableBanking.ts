@@ -6,6 +6,9 @@ type Json = Record<string, any>;
 const API = 'https://api.enablebanking.com';
 const AUTHORIZATION_ORIGINS = new Set([
   'https://auth.enablebanking.com',
+  // The provider is migrating production flows to auth.enablebanking.com;
+  // its documented legacy production origin remains in use during rollout.
+  'https://tilisy.enablebanking.com',
   'https://tilisy-sandbox.enablebanking.com',
 ]);
 const b64 = (value: string) => Buffer.from(value).toString('base64url');

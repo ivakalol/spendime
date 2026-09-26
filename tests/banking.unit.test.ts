@@ -61,10 +61,16 @@ describe('Enable Banking sandbox adapter',()=>{
     await expect(new EnableBankingProvider('test-app',pem).institutions('BG')).rejects.toBeInstanceOf(BankingProviderError);
   });
 
-  it('rejects authorization redirects outside exact Enable Banking origins',async()=>{
+  it.each([
+    'https://tilisy-sandbox.enablebanking.com.attacker.test/ais/start',
+    'https://tilisy.enablebanking.com.attacker.test/ais/start',
+    'http://tilisy.enablebanking.com/ais/start',
+    'https://user:password@tilisy.enablebanking.com/ais/start',
+    'https://tilisy.enablebanking.com:8443/ais/start',
+  ])('rejects unsafe authorization redirect %s',async redirect=>{
     vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
       if(url.endsWith('/application'))return data({environment:'SANDBOX',active:true});
-      if(url.endsWith('/auth'))return data({url:'https://tilisy-sandbox.enablebanking.com.attacker.test/ais/start'});
+      if(url.endsWith('/auth'))return data({url:redirect});
       throw new Error(`Unexpected URL ${url}`);
     }));
     const provider=new EnableBankingProvider('test-app',pem);
@@ -85,7 +91,7 @@ describe('Enable Banking production application guard',()=>{
     expect(await provider.institutions('BG')).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
-  it('submits AIS scope and the public callback to production authorization',async()=>{
+  it.each(['https://auth.enablebanking.com','https://tilisy.enablebanking.com'])('submits AIS scope and accepts documented production origin %s',async origin=>{
     const fetchMock=vi.fn(async(url:string,init?:RequestInit)=>{
       if(url.endsWith('/application')) return data({kid:'production-app',environment:'PRODUCTION',active:true,
         services:['AIS'],redirect_urls:[callback]});
@@ -95,7 +101,7 @@ describe('Enable Banking production application guard',()=>{
         expect(body).toMatchObject({aspsp:{name:'Example Bank',country:'BG'},psu_type:'personal',
           state:'synthetic-state',redirect_url:callback,access:{balances:true,transactions:true}});
         expect(Date.parse(body.access.valid_until)).toBeGreaterThan(Date.now());
-        return data({url:'https://auth.enablebanking.com/ais/start?sessionid=synthetic'});
+        return data({url:`${origin}/ais/start?sessionid=synthetic`});
       }
       throw new Error('Unexpected mock request');
     });
@@ -103,7 +109,7 @@ describe('Enable Banking production application guard',()=>{
     const provider=new EnableBankingProvider('production-app',pem,'production',callback);
     const institution={name:'Example Bank',country:'BG',beta:false,maximumConsentValiditySeconds:86400};
     expect((await provider.begin({institution,state:'synthetic-state',redirectUri:callback})).url)
-      .toContain('auth.enablebanking.com');
+      .toContain(origin);
     await expect(provider.begin({institution,state:'synthetic-state',redirectUri:'https://other.test/api/banking/callback'}))
       .rejects.toMatchObject({code:'invalid_production_redirect'});
     expect(fetchMock).toHaveBeenCalledTimes(2);
