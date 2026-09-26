@@ -1,7 +1,8 @@
+import { isCurrency } from '../../shared/currencies.js';
 import { z } from 'zod';
 
 export const uuidSchema = z.string().uuid();
-export const currencySchema = z.string().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase());
+export const currencySchema = z.string().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()).refine(isCurrency, 'Choose a recognized currency code.');
 export const positiveMoneySchema = z
   .string()
   .regex(/^(?:0|[1-9]\d{0,14})(?:[.,]\d{1,4})?$/, 'Use a positive decimal string with at most 4 decimal places.')

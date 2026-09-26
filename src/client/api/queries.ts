@@ -21,7 +21,7 @@ export const useCategories = (includeArchived = true) => useQuery({ queryKey: [.
 export const useAssets = (includeArchived = true) => useQuery({ queryKey: [...keys.assets, includeArchived], queryFn: () => getData<Asset[]>(`/api/assets?includeArchived=${includeArchived}`) });
 export const useLiabilities = (includeClosed = true) => useQuery({ queryKey: [...keys.liabilities, includeClosed], queryFn: () => getData<Liability[]>(`/api/liabilities?includeClosed=${includeClosed}`) });
 export const useRecurring = (includeInactive = true) => useQuery({ queryKey: [...keys.recurring, includeInactive], queryFn: () => getData<RecurringRule[]>(`/api/recurring-rules?includeInactive=${includeInactive}`) });
-export const useDashboard = (timeframe: string, anchor?: string) => useQuery({ queryKey: [...keys.dashboard, timeframe, anchor], queryFn: () => getData<DashboardData>(`/api/dashboard?${new URLSearchParams({ timeframe, ...(anchor ? { anchor } : {}) })}`), staleTime: 30_000 });
+export const useDashboard = (timeframe: string, anchor?: string, from?: string, to?: string) => useQuery({ queryKey: [...keys.dashboard, timeframe, anchor, from, to], queryFn: () => getData<DashboardData>(`/api/dashboard?${new URLSearchParams({ timeframe, ...(anchor ? { anchor } : {}), ...(from && to ? { from, to } : {}) })}`), staleTime: 30_000 });
 export const useTransactions = (params: URLSearchParams) => useQuery({ queryKey: [...keys.transactions, params.toString()], queryFn: () => apiRequest<PagedEnvelope<Transaction>>(`/api/transactions?${params}`), placeholderData: (old) => old });
 export const useAssetContributions = (id: string) => useQuery({ queryKey: [...keys.assets, id, 'contributions'], queryFn: () => apiRequest<PagedEnvelope<AssetContribution>>(`/api/assets/${id}/contributions?limit=100`) });
 export const useAssetValuations = (id: string) => useQuery({ queryKey: [...keys.assets, id, 'valuations'], queryFn: () => apiRequest<PagedEnvelope<AssetValuation>>(`/api/assets/${id}/valuations?limit=100`) });
@@ -52,3 +52,5 @@ export const useCancelLiability = () => useDomainMutation<string, void>((id) => 
 export const useCreateRecurring = () => useDomainMutation<RecurringInput, RecurringRule>('/api/recurring-rules', 'POST', [keys.recurring]);
 export const useUpdateRecurring = (id: string) => useDomainMutation<RecurringInput, RecurringRule>(`/api/recurring-rules/${id}`, 'PATCH', [keys.recurring]);
 export const useDisableRecurring = () => useDomainMutation<string, void>((id) => `/api/recurring-rules/${id}`, 'DELETE', [keys.recurring]);
+
+export const useSavePreferences = () => useDomainMutation<{baseCurrency?: string; timezone?: string; completeOnboarding?: true}, {saved: boolean}>('/api/auth/preferences', 'PATCH', [keys.me, keys.dashboard]);

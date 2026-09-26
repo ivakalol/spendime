@@ -37,7 +37,7 @@ describe('owner-only banking navigation',()=>{
   it('shows Banking to the owner but no connection controls when production is disabled',()=>{
     state.bankingAccess=true;state.bankingEnabled=false;
     wrap(<Routes><Route path="/banking" element={<BankingRoute><div>Connect a bank</div></BankingRoute>}/></Routes>,'/banking');
-    expect(screen.getByText(/Banking connections and synchronization are disabled/)).toBeInTheDocument();
+    expect(screen.getByText(/Bank connections have not been activated/)).toBeInTheDocument();
     expect(screen.queryByText('Connect a bank')).not.toBeInTheDocument();
   });
   it('shows the owner banking route when enabled',()=>{

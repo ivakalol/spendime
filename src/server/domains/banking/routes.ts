@@ -120,7 +120,7 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     const data = await inUserTransaction(pool, request, async (client) => {
       const connections = (await client.query(`SELECT id,provider,environment,institution_name AS "institutionName",
           institution_country AS "institutionCountry",status,consent_expires_at AS "consentExpiresAt",
-          last_synced_at AS "lastSyncedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode" FROM bank_connections
+          last_synced_at AS "lastSyncedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode",(sync_lease_until>now()) AS "syncing" FROM bank_connections
           WHERE provider=$1 AND environment=$2 ORDER BY created_at DESC`,[bank.id,bank.environment])).rows;
       const links = (await client.query(`SELECT l.id,l.connection_id AS "connectionId",l.name,l.currency,
           l.account_id AS "accountId",l.reported_balance AS "reportedBalance",l.balance_as_of AS "balanceAsOf",
@@ -147,7 +147,7 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     }
     const input = connectionId ? await inUserTransaction(pool, request, async (client) => {
       const row = (await client.query(`SELECT institution_name AS name,institution_country AS country FROM bank_connections
-        WHERE id=$1 AND provider=$2 AND environment=$3 AND status <> 'disconnected'`, [connectionId,bank.id,bank.environment])).rows[0];
+        WHERE id=$1 AND provider=$2 AND environment=$3 `, [connectionId,bank.id,bank.environment])).rows[0];
       return requireRow(row) as { name: string; country: string };
     }) : selectSchema.parse(request.body);
     let institution;
@@ -179,9 +179,9 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
   router.get('/callback', async (request, response) => {
     const query = z.object({ state: z.string().uuid(), code: z.string().optional(), error: z.string().optional() }).passthrough().parse(request.query);
     const attempt = await inUserTransaction(pool, request, async (client) =>
-      (await client.query<{ connection_id: string }>(`SELECT connection_id FROM bank_auth_attempts
+      (await client.query<{ connection_id: string }>(`UPDATE bank_auth_attempts SET consumed_at=now()
        WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now()
-         AND connection_id IN (SELECT id FROM bank_connections WHERE provider=$2 AND environment=$3)`,
+         AND connection_id IN (SELECT id FROM bank_connections WHERE provider=$2 AND environment=$3) RETURNING connection_id`,
        [stateHash(query.state),bank.id,bank.environment])).rows[0]);
     if (!attempt) throw new ApiError(400, 'invalid_bank_state', 'This bank connection link is invalid or expired.');
     if (query.error || !query.code) {
@@ -196,9 +196,20 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     try { session = await bank.complete(query.code); } catch (error) { providerError(error); }
     const userId = authenticatedUserId(request);
     const priorSession = await withUserTransaction(pool, userId, async (client) => {
-      const claimed = await client.query(`UPDATE bank_auth_attempts SET consumed_at=now()
-        WHERE state_hash=$1 AND consumed_at IS NULL AND expires_at>now() RETURNING connection_id`, [stateHash(query.state)]);
-      if (!claimed.rowCount) throw new ApiError(400, 'invalid_bank_state', 'This bank connection link was already used.');
+
+      // Serialize callbacks for this user, including simultaneous new connections.
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,1))',[userId]);
+      for (const account of session.accounts) {
+        const duplicate = await client.query(`SELECT l.id FROM bank_account_links l
+          JOIN bank_connections c ON c.id=l.connection_id
+          WHERE l.identification_hash=$1 AND l.connection_id<>$2 AND c.provider=$3 AND c.environment=$4`,
+          [account.identificationHash,attempt.connection_id,bank.id,bank.environment]);
+        if (duplicate.rowCount) throw new ApiError(409,'bank_account_already_connected','This bank account is already connected. Reconnect the original connection to preserve its history.');
+        const changed = await client.query(`SELECT id FROM bank_account_links
+          WHERE connection_id=$1 AND identification_hash=$2 AND currency<>$3`,[attempt.connection_id,account.identificationHash,account.currency]);
+        if(changed.rowCount) throw new ApiError(409,'bank_currency_changed','The bank changed this account currency. Review the existing account before importing more history.');
+      }
+
       const prior = (await client.query<{ provider_session_id:string|null }>(
         'SELECT provider_session_id FROM bank_connections WHERE id=$1 FOR UPDATE',[attempt.connection_id])).rows[0]?.provider_session_id ?? null;
       await client.query(`UPDATE bank_connections SET provider_session_id=$2,status='active',
@@ -210,6 +221,9 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
         [userId, attempt.connection_id, account.providerAccountId, account.identificationHash, account.name, account.currency]);
       }
       return prior;
+    }).catch(async error => {
+      try { await bank.disconnect(session.sessionId); } catch { /* No credentials are logged. */ }
+      throw error;
     });
     if (priorSession && secrets!.decrypt(priorSession) !== session.sessionId) {
       try { await bank.disconnect(secrets!.decrypt(priorSession)); } catch { /* The old consent may already be expired. */ }
@@ -377,19 +391,7 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
 
   router.post('/links/:id/reconcile', origin, async (request,response) => {
     const id = uuidSchema.parse(request.params.id);
-    const data = await inUserTransaction(pool,request,async (client) => {
-      const link = (await client.query<any>(`SELECT l.account_id,l.reported_balance,l.link_mode,l.last_synced_at,l.balance_status
-        FROM bank_account_links l WHERE l.id=$1 FOR UPDATE`,[id])).rows[0];
-      if (!link || link.link_mode !== 'new' || !link.account_id || !link.last_synced_at || link.reported_balance === null || link.balance_status === 'reconciled')
-        throw new ApiError(409,'reconciliation_unavailable','This bank account cannot be calibrated automatically.');
-      const account = (await client.query<any>(`SELECT a.opening_balance,b.current_balance FROM accounts a
-        JOIN account_balances b ON b.account_id=a.id WHERE a.id=$1`,[link.account_id])).rows[0];
-      await client.query(`UPDATE accounts SET opening_balance=$2::numeric-(($3::numeric)-($4::numeric)) WHERE id=$1`,
-        [link.account_id,link.reported_balance,account.current_balance,account.opening_balance]);
-      await client.query(`UPDATE bank_account_links SET balance_status='reconciled' WHERE id=$1`,[id]);
-      return { reconciled: true };
-    });
-    response.json({ data });
+    throw new ApiError(409,'balance_review_required','Review your opening balance against a dated bank statement. A live bank balance cannot safely determine it automatically.');
   });
 
   router.post('/transfers/pair', origin, async (request,response) => {

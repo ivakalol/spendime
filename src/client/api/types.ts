@@ -6,6 +6,7 @@ export type TransactionMethod = 'standard' | 'amortized' | 'recurring';
 export interface User {
   id: string; email: string; displayName: string; baseCurrency: string; timezone: string;
   emailVerifiedAt: string | null; createdAt: string; bankingAccess: boolean; bankingEnabled: boolean;
+  onboardingCompletedAt?: string | null; bankingStatus?: 'ready' | 'restricted' | 'disabled' | 'unconfigured';
   bankingEnvironment?: 'sandbox' | 'production';
 }
 export interface Account {
@@ -53,7 +54,11 @@ export interface RecurringRule {
   createdAt: string; updatedAt: string;
 }
 export interface DashboardData {
-  timeframe: 'daily' | 'weekly' | 'monthly' | '6-month' | 'annual';
+  timeframe: string;
+  comparisonBounds: {startLocal: string; endLocalExclusive: string};
+  previousCashFlow: Array<{currency:string; actualSpending:string; actualIncome:string}>;
+  balanceTotals: Array<{currency:string; balance:string}>;
+  recentTransactions: Array<{id:string;kind:TransactionKind;amount:string;currency:string;occurredAt:string;title:string}>;
   bounds: { timezone: string; anchorDate: string; startLocal: string; endLocalExclusive: string; startUtc: string; endUtcExclusive: string };
   cashFlow: Array<{ currency: string; actualSpending: string; actualIncome: string; ordinaryNetCashFlow: string; assetPurchases: string; assetSaleProceeds: string; liabilityDrawdowns: string; liabilityPayments: string }>;
   utilityImpact: Array<{ currency: string; utilityAdjustedCost: string }>;
