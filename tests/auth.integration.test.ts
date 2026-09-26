@@ -105,6 +105,25 @@ describe('authentication API with PostgreSQL', () => {
       });
   });
 
+  it('keeps login and session lookup working before optional onboarding metadata is migrated', async () => {
+    // Shadow only this connection's users relation; never alter the real table.
+    const legacyPool = createPool(config.databaseUrl, 1);
+    try {
+      await legacyPool.query(`CREATE TEMP VIEW users AS
+        SELECT id, email, display_name, base_currency, timezone,
+          email_verified_at, created_at, status FROM public.users`);
+      const agent = request.agent(createApp(legacyPool, config));
+      const signedIn = await agent.post('/api/auth/login')
+        .send({ email: emailA, password }).expect(200);
+      expect(signedIn.body.data.user).toMatchObject({ id: userAId, onboardingCompletedAt: null });
+      const session = await agent.get('/api/auth/me').expect(200);
+      expect(session.body.data.user).toMatchObject({ id: userAId, onboardingCompletedAt: null });
+      await agent.post('/api/auth/logout').expect(200);
+    } finally {
+      await legacyPool.end();
+    }
+  });
+
   it('returns 401 from /me without a session', async () => {
     await request(app)
       .get('/api/auth/me')

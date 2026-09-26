@@ -173,6 +173,28 @@ docker compose --profile test run --rm --build auth-test
 
 ## Apply additive migrations to an existing volume
 
+### Product preferences and login after the overhaul
+
+The overhaul requires `006_product_preferences.sql`. If valid login credentials
+return a generic 500 after an upgrade, check whether
+`public.users.onboarding_completed_at` exists. The old deployment omitted this
+migration; PostgreSQL initialization scripts also do not run on existing volumes.
+
+From the production repository directory, apply the additive migration as the
+database owner (no volume reset or password change):
+
+```bash
+docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1' < database/init/006_product_preferences.sql
+```
+
+Retry login immediately; this schema repair needs no app restart. Current Compose
+also runs the idempotent `product-migrate` service before starting `app`, including
+on existing volumes. Do not bypass dependencies with `--no-deps` during upgrades.
+The migration administrator credentials are limited to the migration container;
+the application keeps its restricted database role. Login tolerates the absence
+of optional onboarding metadata during upgrades, but preferences still require
+the migration. Custom deployment scripts must apply it before starting the app.
+
 Fresh databases run every numbered file in `database/init` automatically. The
 official PostgreSQL entrypoint does not rerun initialization files for an
 existing volume. Before starting the Step 4 application against an existing

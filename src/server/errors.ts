@@ -47,7 +47,9 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
 
   // Never serialize SQL errors, parameters, password/session hashes, or stacks.
   const name = error instanceof Error ? error.name : 'UnknownError';
-  console.error('Unhandled request error', { name });
+  // SQLSTATE is safe diagnostic metadata; never log SQL text or user parameters.
+  const code = typeof error?.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? error.code : undefined;
+  console.error('Unhandled request error', { name, ...(code ? { code } : {}) });
   response.status(500).json({
     error: { code: 'internal_error', message: 'An unexpected error occurred.' },
   });

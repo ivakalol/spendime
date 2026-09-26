@@ -30,6 +30,7 @@ services:
       - ./database/init/003_financial_integrity.sql:/docker-entrypoint-initdb.d/003_financial_integrity.sql:ro
       - ./database/init/004_banking.sql:/docker-entrypoint-initdb.d/004_banking.sql:ro
       - ./database/init/005_banking_reconciliation.sql:/docker-entrypoint-initdb.d/005_banking_reconciliation.sql:ro
+      - ./database/init/006_product_preferences.sql:/docker-entrypoint-initdb.d/006_product_preferences.sql:ro
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
@@ -43,6 +44,24 @@ services:
     cpus: 1.0
     pids_limit: 200
     stop_grace_period: 30s
+    networks:
+      - spendime_internal
+
+  product-migrate:
+    image: postgres:16-bookworm
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:?POSTGRES_DB is required}
+      PGUSER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    command: ["psql", "--no-psqlrc", "--set", "ON_ERROR_STOP=1", "--file", "/migrations/006_product_preferences.sql"]
+    volumes:
+      - ./database/init/006_product_preferences.sql:/migrations/006_product_preferences.sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 64m
     networks:
       - spendime_internal
 
@@ -84,6 +103,8 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
+      product-migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
         restart: true
