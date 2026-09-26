@@ -45,6 +45,7 @@ services:
     stop_grace_period: 30s
     networks:
       - spendime_internal
+      
 
   app:
     build:
