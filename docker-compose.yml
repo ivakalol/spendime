@@ -30,7 +30,6 @@ services:
       - ./database/init/003_financial_integrity.sql:/docker-entrypoint-initdb.d/003_financial_integrity.sql:ro
       - ./database/init/004_banking.sql:/docker-entrypoint-initdb.d/004_banking.sql:ro
       - ./database/init/005_banking_reconciliation.sql:/docker-entrypoint-initdb.d/005_banking_reconciliation.sql:ro
-      - ./database/init/006_product_preferences.sql:/docker-entrypoint-initdb.d/006_product_preferences.sql:ro
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
@@ -107,6 +106,15 @@ services:
     stop_grace_period: 15s
     networks:
       - spendime_internal
+
+    volumes:
+      - type: bind
+        source: /home/ivko/.config/spendime/secrets/enable-banking-production.pem
+        target: /run/secrets/enable-banking-production.pem
+        read_only: true
+        bind:
+          create_host_path: false
+
 
   auth-test:
     profiles: ["test"]
