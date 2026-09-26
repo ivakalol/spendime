@@ -74,7 +74,7 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
 .auth-page { align-items: flex-start; }
 .page-grid { display: grid; gap: 1rem; grid-template-columns: repeat(12, minmax(0, 1fr)); }
 .chart-text { font-size: 11px; fill: rgb(var(--muted)); }
-.money-value { font-variant-numeric: tabular-nums lining-nums; letter-spacing: -.025em; }
+.money-value { font-variant-numeric: tabular-nums lining-nums; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .scroll-fade-x { mask-image: linear-gradient(to right, transparent, black 10px, black calc(100% - 10px), transparent); }
@@ -200,4 +200,22 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
 @keyframes shimmer { 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* Calm surfaces and usable touch targets across the product. */
+.skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 100; padding: .75rem 1rem; background: white; color: #153b32; border-radius: .5rem; }
+.skip-link:focus { top: 1rem; }
+.app-sidebar { overflow-y: auto; }
+.app-sidebar > nav { padding-bottom: 1rem; }
+.app-sidebar > div:last-child { flex-shrink: 0; }
+.modal-scroll label > span:first-child { overflow-wrap: anywhere; }
+.modal-scroll .grid > * { min-width: 0; }
+@media (max-width: 639px) {
+  .transaction-amount { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; border-top: 1px solid rgb(var(--brand) / .08); padding-top: .5rem; }
+  .transaction-amount > p { max-width: 100%; }
+}
+@media (max-width: 639px) {
+  main header { flex-wrap: wrap; }
+  main header > div:last-child { max-width: 100%; }
+  .money-value { overflow-wrap: anywhere; }
 }

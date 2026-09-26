@@ -144,6 +144,23 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await b.get('/api/banking/connections').expect(403);
   });
 
+  it('rejects duplicate bank accounts and unsafe live-balance calibration',async()=>{
+    await a.post(`/api/banking/links/${eurLink}/reconcile`).set('Origin',origin).expect(409)
+      .expect(({body})=>expect(body.error.code).toBe('balance_review_required'));
+    const start=await a.post('/api/banking/connections').set('Origin',origin).send({country:'BG',name:'Mock ASPSP'}).expect(201);
+    const state=new URL(start.body.data.authorizationUrl).searchParams.get('state')!;
+    await a.get(`/api/banking/callback?state=${state}&code=A`).expect(409)
+      .expect(({body})=>expect(body.error.code).toBe('bank_account_already_connected'));
+    await a.get(`/api/banking/callback?state=${state}&code=A`).expect(400);
+    await withUserTransaction(pool,userA,client=>client.query('DELETE FROM bank_connections WHERE id=$1',[start.body.data.connectionId]));
+    const renewed=await a.post(`/api/banking/connections/${connectionId}/renew`).set('Origin',origin).expect(200);
+    const renewedState=new URL(renewed.body.data.authorizationUrl).searchParams.get('state')!;
+    const responses=await Promise.all([a.get(`/api/banking/callback?state=${renewedState}&code=A`),a.get(`/api/banking/callback?state=${renewedState}&code=A`)]);
+    expect(responses.map(r=>r.status).sort()).toEqual([303,400]);
+    expect((await a.get(`/api/accounts/${eurAccount}`)).body.data.currentBalance).toBe('-15.0000');
+    await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
+  });
+
   it('schedules only sandbox Mock ASPSP at five minutes and serializes manual syncs',async()=>{
     const schedule=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT last_synced_at,next_sync_at FROM bank_connections WHERE id=$1`,[connectionId])).rows[0]);
     expect(new Date(schedule.next_sync_at).getTime()-new Date(schedule.last_synced_at).getTime()).toBe(5*60_000);

@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { ApiError } from '../../errors.js';
 
-export type Timeframe = 'daily'|'weekly'|'monthly'|'6-month'|'annual';
+export type Timeframe = 'daily'|'weekly'|'monthly'|'6-month'|'annual'|'this-week'|'this-month'|'last-month'|'last-30-days'|'this-year'|'custom';
 
 interface Bounds {
   timezone:string; anchorDate:string; startLocal:string; endLocalExclusive:string;
@@ -9,7 +9,7 @@ interface Bounds {
 }
 
 export async function getDashboard(
-  client:pg.PoolClient,userId:string,timeframe:Timeframe,anchor?:string,
+  client:pg.PoolClient,userId:string,timeframe:Timeframe,anchor?:string,from?:string,to?:string,
 ){
 
   const boundsResult=await client.query<Bounds>(`
@@ -20,6 +20,12 @@ export async function getDashboard(
     ), local_bounds AS (
       SELECT timezone,anchor_date,
         CASE $2
+          WHEN 'custom' THEN $4::date::timestamp
+          WHEN 'this-week' THEN date_trunc('week',anchor_date::timestamp)
+          WHEN 'this-month' THEN date_trunc('month',anchor_date::timestamp)
+          WHEN 'last-month' THEN date_trunc('month',anchor_date::timestamp)-interval '1 month'
+          WHEN 'last-30-days' THEN anchor_date::timestamp-interval '29 days'
+          WHEN 'this-year' THEN date_trunc('year',anchor_date::timestamp)
           WHEN 'daily' THEN anchor_date::timestamp
           WHEN 'weekly' THEN date_trunc('week',anchor_date::timestamp)
           WHEN 'monthly' THEN date_trunc('month',anchor_date::timestamp)
@@ -29,6 +35,12 @@ export async function getDashboard(
       FROM settings
     ), complete AS (
       SELECT *,CASE $2
+        WHEN 'custom' THEN $5::date::timestamp+interval '1 day'
+        WHEN 'this-week' THEN anchor_date::timestamp+interval '1 day'
+        WHEN 'this-month' THEN anchor_date::timestamp+interval '1 day'
+        WHEN 'last-month' THEN start_local+interval '1 month'
+        WHEN 'last-30-days' THEN anchor_date::timestamp+interval '1 day'
+        WHEN 'this-year' THEN anchor_date::timestamp+interval '1 day'
         WHEN 'daily' THEN start_local+interval '1 day'
         WHEN 'weekly' THEN start_local+interval '7 days'
         WHEN 'monthly' THEN start_local+interval '1 month'
@@ -36,11 +48,11 @@ export async function getDashboard(
         WHEN 'annual' THEN start_local+interval '1 year'
       END end_local FROM local_bounds
     )
-    SELECT timezone,anchor_date AS "anchorDate",start_local::date AS "startLocal",
-      end_local::date AS "endLocalExclusive",
+    SELECT timezone,anchor_date::text AS "anchorDate",start_local::date::text AS "startLocal",
+      end_local::date::text AS "endLocalExclusive",
       start_local AT TIME ZONE timezone AS "startUtc",
       end_local AT TIME ZONE timezone AS "endUtcExclusive" FROM complete`,
-    [userId,timeframe,anchor??null]);
+    [userId,timeframe,anchor??null,from??null,to??null]);
   const bounds=boundsResult.rows[0];
   if(!bounds)throw new ApiError(400,'invalid_timezone','The user timezone is not a valid IANA timezone.');
 
@@ -93,7 +105,7 @@ export async function getDashboard(
 
   const actualTrend=(await client.query(`
     SELECT currency,
-      (CASE WHEN $3 IN ('6-month','annual')
+      (CASE WHEN $3 IN ('6-month','annual','this-year')
         THEN date_trunc('month',occurred_at AT TIME ZONE $4)
         ELSE date_trunc('day',occurred_at AT TIME ZONE $4) END)::text AS "bucketStartLocal",
       (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
@@ -106,7 +118,7 @@ export async function getDashboard(
 
   const utilityTrend=(await client.query(`
     SELECT currency,
-      (CASE WHEN $3 IN ('6-month','annual') THEN date_trunc('month',impact_date::timestamp)
+      (CASE WHEN $3 IN ('6-month','annual','this-year') THEN date_trunc('month',impact_date::timestamp)
         ELSE impact_date::timestamp END)::text AS "bucketStartLocal",
       sum(expense_impact)::numeric AS "utilityAdjustedCost"
     FROM daily_financial_impact WHERE impact_date >= $1::date AND impact_date < $2::date
@@ -127,7 +139,7 @@ export async function getDashboard(
       FROM valuation_gains
     )
     SELECT currency,
-      (CASE WHEN $3 IN ('6-month','annual')
+      (CASE WHEN $3 IN ('6-month','annual','this-year')
         THEN date_trunc('month',valued_at AT TIME ZONE $4)
         ELSE date_trunc('day',valued_at AT TIME ZONE $4) END)::text AS "bucketStartLocal",
       sum(gain_change)::numeric AS "unrealizedGainChange"
@@ -135,7 +147,25 @@ export async function getDashboard(
     GROUP BY currency,"bucketStartLocal" ORDER BY "bucketStartLocal",currency`,
     [...range,timeframe,bounds.timezone])).rows;
 
-  return {timeframe,bounds,cashFlow,utilityImpact,assetSummary,liabilitySummary,
+  const comparisonBounds = (await client.query(`SELECT
+    ($1::date-($2::date-$1::date))::text AS "startLocal",$1::date::text AS "endLocalExclusive"`,
+    [bounds.startLocal,bounds.endLocalExclusive])).rows[0];
+  const previousCashFlow=(await client.query(`SELECT currency,
+    (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
+    COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome"
+    FROM transactions WHERE voided_at IS NULL AND kind IN ('expense','refund','income')
+      AND occurred_at >= ($1::date::timestamp AT TIME ZONE $3)
+      AND occurred_at < ($2::date::timestamp AT TIME ZONE $3)
+    GROUP BY currency ORDER BY currency`,[comparisonBounds.startLocal,comparisonBounds.endLocalExclusive,bounds.timezone])).rows;
+  const balanceTotals=(await client.query(`SELECT b.currency,sum(b.current_balance)::numeric AS balance
+    FROM account_balances b JOIN accounts a ON a.id=b.account_id WHERE NOT a.is_archived
+    GROUP BY b.currency ORDER BY b.currency`)).rows;
+  const recentTransactions=(await client.query(`SELECT t.id,t.kind,t.amount,t.currency,t.occurred_at AS "occurredAt",
+    COALESCE(t.description,t.merchant,c.name,replace(t.kind::text,'_',' ')) AS title
+    FROM transactions t LEFT JOIN categories c ON c.id=t.category_id
+    WHERE t.voided_at IS NULL AND t.occurred_at >= $1 AND t.occurred_at < $2
+    ORDER BY t.occurred_at DESC,t.id DESC LIMIT 6`,range)).rows;
+  return {timeframe,bounds,comparisonBounds,previousCashFlow,balanceTotals,recentTransactions,cashFlow,utilityImpact,assetSummary,liabilitySummary,
     spendingByCategory,accountBalances,trends:{actualCashFlow:actualTrend,
       utilityImpact:utilityTrend,assetUnrealizedGainChange:assetGrowthTrend}};
 }

@@ -1,3 +1,4 @@
+import { CurrencySelect } from '../components/CurrencySelect';
 import { Archive, ArrowDownUp, BarChart3, Pencil, Plus, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
@@ -21,8 +22,8 @@ export default function AssetsPage() {
   const [create, setCreate] = useState(false);
   const [selected, setSelected] = useState<Asset | null>(null);
   return <>
-    <PageHeader eyebrow="Ownership" title="Assets" description="Principal, market value, and gain/loss stay separate—especially across repeated contributions." action={<Button onClick={() => setCreate(true)}><Plus className="size-4" />New</Button>} />
-    {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.length === 0 ? <EmptyState icon={<BarChart3 />} title="No assets yet" description="Add an investment, depreciating item, or custom asset to track its value over time." action={<Button onClick={() => setCreate(true)}>Create asset</Button>} /> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{query.data.map((asset) => <button key={asset.id} onClick={() => setSelected(asset)} className="group rounded-3xl text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas active:scale-[.99]"><AssetCard asset={asset} /></button>)}</div>}
+    <PageHeader eyebrow="Ownership" title="Assets" description="Things you own that have financial value, such as a car, a home or an investment." action={<Button onClick={() => setCreate(true)}><Plus className="size-4" />Add asset</Button>} />
+    {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.length === 0 ? <EmptyState icon={<BarChart3 />} title="No assets yet" description="Add an investment, depreciating item, or custom asset to track its value over time." action={<Button onClick={() => setCreate(true)}>Create asset</Button>} /> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{query.data.map((asset) => <button key={asset.id} onClick={() => setSelected(asset)} className="group min-w-0 rounded-3xl text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas active:scale-[.99]"><AssetCard asset={asset} /></button>)}</div>}
     <CreateAsset open={create} onClose={() => setCreate(false)} />
     {selected && <AssetDetail asset={selected} onClose={() => setSelected(null)} />}
   </>;
@@ -34,7 +35,7 @@ export function AssetCard({ asset }: { asset: Asset }) {
   return <Card className={`card-lift h-full overflow-hidden ${asset.isArchived ? 'opacity-50' : ''}`}>
     <div aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${asset.classification === 'appreciating' ? 'bg-emerald-500' : asset.classification === 'depreciating' ? 'bg-amber-500' : 'bg-blue-500'}`} />
     <div className="flex items-center justify-between"><span className={`grid size-11 place-items-center rounded-2xl ring-1 ring-inset ring-black/[.035] ${asset.classification === 'appreciating' ? 'bg-emerald-50 text-emerald-800' : asset.classification === 'depreciating' ? 'bg-amber-50 text-amber-900' : 'bg-blue-50 text-blue-800'}`}>{asset.classification === 'depreciating' ? <TrendingDown /> : <TrendingUp />}</span><Badge>{asset.isArchived ? 'Archived' : asset.classification}</Badge></div>
-    <h2 className="mt-5 font-bold tracking-tight">{asset.name}</h2>
+    <h2 className="mt-5 break-words font-bold tracking-tight">{asset.name}</h2>
     <p className="money-value mt-1 text-2xl font-bold">{formatMoney(asset.currentValue, asset.currency)}</p>
     <p className="mt-3 text-xs text-muted">{t('Contributed')} {formatMoney(asset.cumulativePrincipal, asset.currency)}</p>
     <p className={`mt-0.5 text-sm font-semibold ${sign > 0 ? 'text-emerald-800' : sign < 0 ? 'text-rose-800' : 'text-muted'}`}>{sign > 0 ? '▲' : sign < 0 ? '▼' : '—'} {formatMoney(asset.absoluteReturn, asset.currency)} · {formatPercent(asset.percentageReturn)}</p>
@@ -51,15 +52,15 @@ function CreateAsset({ open, onClose }: { open: boolean; onClose: () => void }) 
   } satisfies AssetInput);
   const [form, setForm] = useState<AssetInput>(initial);
   useEffect(() => { if (open) { setForm(initial()); mutation.reset(); } }, [open]);
-  return <Modal open={open} onClose={onClose} title="New asset" description="The initial contribution becomes the first immutable cost-basis event.">
+  return <Modal open={open} onClose={onClose} title="New asset" description="Record what you paid and what it is worth today. This does not move money from an account.">
     <form className="grid gap-4" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(form, { onSuccess: onClose }); }}>
       <Field label="Name"><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
-      <div className="grid grid-cols-2 gap-3"><Field label="Classification"><Select value={form.classification} onChange={(event) => setForm({ ...form, classification: event.target.value as Asset['classification'] })}><option value="appreciating">Appreciating</option><option value="depreciating">Depreciating</option><option value="custom">Custom</option></Select></Field><Field label="Currency"><Input value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} pattern="[A-Z]{3}" required /></Field></div>
+      <div className="grid grid-cols-2 gap-3"><Field label="Classification"><Select value={form.classification} onChange={(event) => setForm({ ...form, classification: event.target.value as Asset['classification'] })}><option value="appreciating">Grows in value</option><option value="depreciating">Loses value over time</option><option value="custom">Custom</option></Select></Field><Field label="Currency"><CurrencySelect value={form.currency} onChange={currency => setForm({ ...form, currency })} /></Field></div>
       <div className="grid grid-cols-2 gap-3"><Field label="Initial contribution"><Input inputMode="decimal" value={form.initialContribution} onChange={(event) => setForm({ ...form, initialContribution: event.target.value, currentValue: form.currentValue || event.target.value })} required /></Field><Field label="Current value"><Input inputMode="decimal" value={form.currentValue} onChange={(event) => setForm({ ...form, currentValue: event.target.value })} required /></Field></div>
       <Field label="Acquisition date"><Input type="date" value={form.acquisitionDate} onChange={(event) => setForm({ ...form, acquisitionDate: event.target.value })} required /></Field>
       {form.classification === 'depreciating' && <><Field label="Depreciation model"><Select value={form.depreciation} onChange={(event) => setForm({ ...form, depreciation: event.target.value as Asset['depreciation'], usefulLifeDays: event.target.value === 'straight_line' ? 365 : null })}><option value="none">None</option><option value="straight_line">Straight line</option></Select></Field>{form.depreciation === 'straight_line' && <Field label="Useful life in days"><Input type="number" min="1" value={form.usefulLifeDays ?? ''} onChange={(event) => setForm({ ...form, usefulLifeDays: parseInt(event.target.value, 10) })} required /></Field>}</>}
       <Field label="Notes" hint="Optional"><Input value={form.notes ?? ''} onChange={(event) => setForm({ ...form, notes: event.target.value || null })} /></Field>
-      <FormError error={mutation.error} /><Button disabled={mutation.isPending}>{mutation.isPending ? 'Creating…' : 'Create asset'}</Button>
+      <FormError error={mutation.error} /><Button loading={mutation.isPending}>Create asset</Button>
     </form>
   </Modal>;
 }
@@ -102,9 +103,9 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
 
     {tab === 'overview' && <div className="mt-5 grid gap-4">
       <div className="grid grid-cols-2 gap-3"><Summary label="Contributed principal" value={formatMoney(latest.cumulativePrincipal, latest.currency)} /><Summary label="Market value" value={formatMoney(latest.currentValue, latest.currency)} /><Summary label="Absolute gain/loss" value={formatMoney(latest.absoluteReturn, latest.currency)} /><Summary label="Simple return" value={formatPercent(latest.percentageReturn)} /></div>
-      {valuationChart.length > 0 && <Card><h3 className="text-sm font-semibold">{t('Valuation history')}</h3><div className="mt-3 h-40"><ResponsiveContainer><AreaChart data={valuationChart}><XAxis dataKey="date" tick={{ fontSize: 10 }} /><Tooltip formatter={(_, __, entry) => formatMoney(String(entry.payload.exact), latest.currency)} /><Area dataKey="value" stroke="#27846f" fill="#27846f33" /></AreaChart></ResponsiveContainer></div></Card>}
-      <div><h3 className="mb-2 text-sm font-semibold">{t('Contribution history')}</h3>{contributions.isPending ? <LoadingState /> : <div className="grid gap-2">{contributions.data?.data.map((item) => <div key={item.id} className={`flex justify-between rounded-2xl bg-white p-3 ${item.voidedAt ? 'opacity-50' : ''}`}><div><p className="text-sm font-semibold">{formatMoney(item.amount, item.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.contributedAt, timezone)}</p></div><Badge tone={item.transactionId ? 'info' : 'neutral'}>{item.transactionId ? 'Account purchase' : 'Principal only'}</Badge></div>)}</div>}</div>
-      {!latest.isArchived && <Button variant="danger" onClick={() => archive.mutate(latest.id, { onSuccess: onClose })}><Archive className="size-4" />Archive asset</Button>}
+      {valuations.isPending ? <LoadingState label="Loading valuation history…"/> : valuations.isError ? <ErrorState error={valuations.error} retry={()=>valuations.refetch()}/> : valuationChart.length > 0 && <Card><h3 className="text-sm font-semibold">{t('Valuation history')}</h3><div className="mt-3 h-40"><ResponsiveContainer><AreaChart data={valuationChart}><XAxis dataKey="date" tick={{ fontSize: 10 }} /><Tooltip formatter={(_, __, entry) => formatMoney(String(entry.payload.exact), latest.currency)} /><Area dataKey="value" stroke="#27846f" fill="#27846f33" /></AreaChart></ResponsiveContainer></div></Card>}
+      <div><h3 className="mb-2 text-sm font-semibold">{t('Contribution history')}</h3>{contributions.isPending ? <LoadingState /> : contributions.isError ? <ErrorState error={contributions.error} retry={()=>contributions.refetch()} /> : !contributions.data?.data.length ? <p className="py-4 text-sm text-muted">No contributions recorded yet. Use Contribute to add one.</p> : <div className="grid gap-2">{contributions.data?.data.map((item) => <div key={item.id} className={`flex justify-between rounded-2xl bg-white p-3 ${item.voidedAt ? 'opacity-50' : ''}`}><div><p className="text-sm font-semibold">{formatMoney(item.amount, item.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.contributedAt, timezone)}</p></div><Badge tone={item.transactionId ? 'info' : 'neutral'}>{item.transactionId ? 'Account purchase' : 'Principal only'}</Badge></div>)}</div>}</div>
+      {!latest.isArchived && <><FormError error={archive.error}/><Button variant="danger" loading={archive.isPending} onClick={() => archive.mutate(latest.id, { onSuccess: onClose })}><Archive className="size-4" />Archive asset</Button></>}
     </div>}
 
     {tab === 'contribute' && <form className="mt-5 grid gap-4" onSubmit={(event) => { event.preventDefault(); addContribution.mutate({ amount, currency: latest.currency, contributedAt: zonedInputToIso(when, timezone), note: note || null, sourceAccountId: account || null, ...(current ? { currentValue: current } : {}) }, { onSuccess: () => setTab('overview') }); }}>
@@ -113,7 +114,7 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
       <Field label="Current market value" hint="Optional after this contribution"><Input inputMode="decimal" value={current} onChange={(event) => setCurrent(event.target.value)} /></Field>
       <Field label={`${t('Contributed at')} · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
       <Field label="Note"><Input value={note} onChange={(event) => setNote(event.target.value)} /></Field>
-      <FormError error={addContribution.error} /><Button disabled={addContribution.isPending}>{addContribution.isPending ? 'Adding…' : 'Add contribution'}</Button>
+      <FormError error={addContribution.error} /><Button loading={addContribution.isPending}>Add contribution</Button>
     </form>}
 
     {tab === 'value' && <div className="mt-5 grid gap-5">
@@ -123,9 +124,9 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
         {!editingValuation && <Field label={`${t('Valued at')} · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>}
         <Field label="Note"><Input value={note} onChange={(event) => setNote(event.target.value)} /></Field>
         <FormError error={editingValuation ? updateValuation.error : addValuation.error} />
-        <Button disabled={editingValuation ? updateValuation.isPending : addValuation.isPending}><ArrowDownUp className="size-4" />{editingValuation ? (updateValuation.isPending ? 'Saving…' : 'Save valuation') : (addValuation.isPending ? 'Saving…' : 'Record valuation')}</Button>
+        <Button loading={editingValuation ? updateValuation.isPending : addValuation.isPending}><ArrowDownUp className="size-4" />{editingValuation ? 'Save valuation' : 'Record valuation'}</Button>
       </form>
-      <div><h3 className="mb-2 text-sm font-semibold">{t('Valuation history')}</h3><div className="grid gap-2">{valuations.data?.data.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3"><div><p className="money-value text-sm font-semibold">{formatMoney(item.value, latest.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.valuedAt, timezone)}{item.note ? ` · ${item.note}` : ''}</p></div>{!latest.isArchived && <Button type="button" variant="ghost" className="size-10 min-h-10 shrink-0 px-0" onClick={() => chooseValuation(item)} aria-label={t('Edit valuation from {date}', {date: formatInTimezone(item.valuedAt, timezone)})}><Pencil className="size-4" /></Button>}</div>)}</div></div>
+      <div><h3 className="mb-2 text-sm font-semibold">{t('Valuation history')}</h3><div className="grid gap-2">{valuations.data?.data.map((item) => <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-3 [&>div]:min-w-0 [&_p]:break-words"><div><p className="money-value text-sm font-semibold">{formatMoney(item.value, latest.currency)}</p><p className="text-xs text-muted">{formatInTimezone(item.valuedAt, timezone)}{item.note ? ` · ${item.note}` : ''}</p></div>{!latest.isArchived && <Button type="button" variant="ghost" className="size-10 min-h-10 shrink-0 px-0" onClick={() => chooseValuation(item)} aria-label={t('Edit valuation from {date}', {date: formatInTimezone(item.valuedAt, timezone)})}><Pencil className="size-4" /></Button>}</div>)}</div></div>
     </div>}
   </Modal>;
 }

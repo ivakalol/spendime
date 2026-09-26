@@ -7,4 +7,9 @@ describe('exact decimal presentation',()=>{
   it('rounds using decimal digits rather than binary floating point',()=>{expect(formatMoney('1.005','EUR','en-US')).toBe('€1.01');expect(formatMoney('9007199254740993.125','EUR','en-US')).toBe('€9,007,199,254,740,993.13')});
   it('formats signs and percentages without arithmetic coercion',()=>{expect(formatPercent('6.363636')).toBe('+6.36%');expect(formatPercent('-1.235')).toBe('−1.24%');expect(decimalSign('-0.0001')).toBe(-1)});
   it('isolates lossy chart conversion',()=>{expect(decimalToChartNumber('29.99')).toBe(29.99);expect(decimalToChartNumber('not-money')).toBe(0)});
+  it('uses currency minor units and locale grouping without losing integer precision',()=>{
+    expect(formatMoney('1234.5','JPY','en-US')).toBe('¥1,235');
+    expect(formatMoney('1.2345','KWD','en-US')).toContain('1.235');
+    expect(formatMoney('1234.56','EUR','de-DE')).toBe('1.234,56 €');
+  });
 });
