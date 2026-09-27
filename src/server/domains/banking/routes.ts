@@ -128,8 +128,11 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
           l.account_id AS "accountId",l.reported_balance AS "reportedBalance",l.balance_as_of AS "balanceAsOf",
           l.balance_status AS "balanceStatus",l.last_synced_at AS "lastSyncedAt",
           l.link_mode AS "linkMode",l.automatic_post_after AS "automaticPostAfter",
+          l.history_ignored_before::text AS "historyIgnoredBefore",
           (SELECT count(*)::integer FROM bank_transactions bt WHERE bt.bank_account_link_id=l.id
             AND bt.match_status='review') AS "reviewCount",
+          (SELECT count(*)::integer FROM bank_transactions bt WHERE bt.bank_account_link_id=l.id
+            AND bt.match_status='review' AND bt.status='BOOK' AND bt.ledger_transaction_id IS NULL) AS "unresolvedReviewCount",
           a.current_balance AS "ledgerBalance"
           FROM bank_account_links l LEFT JOIN account_balances a ON a.account_id=l.account_id
           JOIN bank_connections c ON c.id=l.connection_id
@@ -403,6 +406,28 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       await client.query(`UPDATE bank_account_links SET automatic_post_after=now() WHERE id=$1`,[id]);
     });
     response.json({data:{automaticPostingEnabled:true}});
+  });
+
+  router.post('/links/:id/start-from-today', origin, async (request,response) => {
+    const id = uuidSchema.parse(request.params.id);
+    const data = await inUserTransaction(pool,request,async (client,userId) => {
+      const link = (await client.query<{ last_synced_at:Date|null; history_ignored_before:string|null }>(`
+        SELECT l.last_synced_at,l.history_ignored_before::text FROM bank_account_links l
+        JOIN bank_connections c ON c.id=l.connection_id AND c.status='active'
+        WHERE l.id=$1 AND l.account_id IS NOT NULL AND c.provider=$2 AND c.environment=$3
+        FOR UPDATE OF l`,[id,bank.id,bank.environment])).rows[0];
+      if (!link?.last_synced_at) throw new ApiError(409,'initial_review_unavailable','Finish the first bank sync before choosing an import start date.');
+      if (link.history_ignored_before) throw new ApiError(409,'bank_import_already_started','An import start date has already been selected for this account.');
+      const cutoff = (await client.query<{ today:string }>(
+        `SELECT (now() AT TIME ZONE timezone)::date::text AS today FROM users WHERE id=$1`,[userId])).rows[0]!.today;
+      const ignored = await client.query(`UPDATE bank_transactions SET match_status='ignored'
+        WHERE bank_account_link_id=$1 AND ledger_transaction_id IS NULL AND status='BOOK'
+          AND match_status IN ('new','review') AND occurred_on<=$2::date`,[id,cutoff]);
+      await client.query(`UPDATE bank_account_links SET history_ignored_before=$2::date,
+        automatic_post_after=now() WHERE id=$1`,[id,cutoff]);
+      return {ignoredCount:ignored.rowCount ?? 0,historyIgnoredBefore:cutoff,automaticPostingEnabled:true};
+    });
+    response.json({data});
   });
 
   router.post('/links/:id/reconcile', origin, async (request,response) => {

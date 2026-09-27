@@ -350,6 +350,53 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await a.delete(`/api/banking/connections/${historyConnection}/data`).set('Origin',origin).expect(204);
   });
 
+  it('starts from today without changing manual history and keeps old items ignored on later syncs',async()=>{
+    await withUserTransaction(pool,userA,client=>client.query(`UPDATE users SET timezone='Pacific/Kiritimati' WHERE id=$1`,[userA]));
+    const cutoff=await withUserTransaction(pool,userA,async client=>(await client.query<{today:string}>(
+      `SELECT (now() AT TIME ZONE timezone)::date::text AS today FROM users WHERE id=$1`,[userA])).rows[0]!.today);
+    const day=(offset:number)=>new Date(Date.parse(`${cutoff}T12:00:00Z`)+offset*86400_000).toISOString().slice(0,10);
+    const manualAccount=(await a.post('/api/accounts').send({name:'Keep manual history',kind:'checking',currency:'EUR',openingBalance:'100.00'}).expect(201)).body.data.id;
+    const manual=(await a.post('/api/transactions').send({kind:'expense',sourceAccountId:manualAccount,amount:'12.00',currency:'EUR',occurredAt:`${day(-1)}T00:00:00Z`,description:'Already recorded'}).expect(201)).body.data.id;
+    const start=await a.post('/api/banking/connections').set('Origin',origin).send({country:'BG',name:'Mock ASPSP'}).expect(201);
+    const state=new URL(start.body.data.authorizationUrl).searchParams.get('state');
+    await a.get(`/api/banking/callback?state=${state}&code=CUTOFF`).expect(303);
+    const id=start.body.data.connectionId;
+    const link=(await a.get('/api/banking/connections').expect(200)).body.data.find((x:any)=>x.id===id).accounts.find((x:any)=>x.currency==='EUR').id;
+    await a.post(`/api/banking/links/${link}/link`).set('Origin',origin).send({accountId:manualAccount}).expect(200);
+    await a.post(`/api/banking/links/${link}/start-from-today`).set('Origin',origin).expect(409);
+    const history=Array.from({length:450},(_,i)=>({...tx(`cutoff-${i}`,'debit',i===0?'12.00':'1.00','EUR','History'),occurredOn:i===449?cutoff:day(-1)}));
+    bank.entries.set('CUTOFF-eur',history);
+    await syncConnection(pool,bank,secrets,userA,id,true);
+    const matchedId=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT id FROM bank_transactions WHERE entry_reference='cutoff-0'`)).rows[0].id);
+    await a.post(`/api/banking/review/${matchedId}/match`).set('Origin',origin).send({transactionId:manual}).expect(200);
+    const before=(await a.get(`/api/accounts/${manualAccount}`).expect(200)).body.data.currentBalance;
+    await b.post(`/api/banking/links/${link}/start-from-today`).set('Origin',origin).expect(403);
+    await a.post(`/api/banking/links/${link}/start-from-today`).set('Origin','https://untrusted.example').expect(403);
+    await a.post(`/api/banking/links/${crypto.randomUUID()}/start-from-today`).set('Origin',origin).expect(404);
+    const result=await a.post(`/api/banking/links/${link}/start-from-today`).set('Origin',origin).expect(200);
+    expect(result.body.data).toMatchObject({ignoredCount:449,historyIgnoredBefore:cutoff,automaticPostingEnabled:true});
+    await a.post(`/api/banking/links/${link}/start-from-today`).set('Origin',origin).expect(409);
+    expect((await a.get(`/api/accounts/${manualAccount}`).expect(200)).body.data.currentBalance).toBe(before);
+    expect((await a.get(`/api/transactions/${manual}`).expect(200)).body.data.id).toBe(manual);
+    expect((await a.get('/api/banking/review').expect(200)).body.data.filter((x:any)=>x.bankAccountLinkId===link)).toHaveLength(0);
+    bank.entries.set('CUTOFF-eur',[...history,
+      {...tx('cutoff-late-old','debit','2.00','EUR','Old arrival'),occurredOn:day(-1)},
+      {...tx('cutoff-new-today','debit','2.00','EUR','Today'),occurredOn:cutoff},
+      {...tx('cutoff-future','credit','5.00','EUR','New income'),occurredOn:day(1)}]);
+    await syncConnection(pool,bank,secrets,userA,id,true);
+    await syncConnection(pool,bank,secrets,userA,id,true);
+    const rows=await withUserTransaction(pool,userA,async client=>(await client.query(
+      `SELECT entry_reference,match_status,ledger_transaction_id FROM bank_transactions WHERE bank_account_link_id=$1`,[link])).rows);
+    expect(rows.filter(x=>x.match_status==='ignored')).toHaveLength(450);
+    expect(rows.find(x=>x.entry_reference==='cutoff-0')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:manual});
+    expect(rows.find(x=>x.entry_reference==='cutoff-new-today')).toMatchObject({match_status:'review',ledger_transaction_id:null});
+    expect(rows.find(x=>x.entry_reference==='cutoff-future')?.match_status).toBe('posted');
+    expect(Number((await a.get(`/api/accounts/${manualAccount}`).expect(200)).body.data.currentBalance)).toBe(Number(before)+5);
+    await a.post(`/api/banking/connections/${id}/disconnect`).set('Origin',origin).expect(204);
+    await a.delete(`/api/banking/connections/${id}/data`).set('Origin',origin).expect(204);
+    await withUserTransaction(pool,userA,client=>client.query(`UPDATE users SET timezone='UTC' WHERE id=$1`,[userA]));
+  });
+
   it('expires consent and disconnects without deleting imported ledger entries',async()=>{
     bank.expired=true;
     await syncConnection(pool,bank,secrets,userA,connectionId,true);

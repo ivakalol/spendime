@@ -211,6 +211,20 @@ Do not use the reset command on a production database without a verified backup.
 
 ## Resource budget
 
+For an existing installation, apply the additive bank history cutoff migration
+before deploying code that uses **Start importing from today**. It adds one
+nullable setting and does not change ledger transactions or balances:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' < database/init/007_bank_history_cutoff.sql
+docker compose up -d --build app
+```
+
+The action preserves manual history, ignores already imported unposted items
+through today in the user's timezone, and keeps older items ignored on subsequent
+syncs. New items booked on the cutoff date require review; later booking dates
+can post automatically. Existing linked ledger entries are never discarded.
+
 The database container is capped at 512 MB RAM and the Node container at 256 MB.
 PostgreSQL is additionally tuned for this limit with a 128 MB shared buffer,
 30 maximum connections, and conservative per-operation memory settings. CPU and

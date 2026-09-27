@@ -10,7 +10,7 @@ import { formatMoney } from '../utils/money';
 
 type Review = { id:string; bankAccountLinkId:string; accountName:string; direction:string; amount:string; currency:string; occurredOn:string; merchant:string|null; description:string|null; ledgerTransactionId:string|null; proposedAmount:string|null; proposedCurrency:string|null; proposedOccurredOn:string|null };
 type Candidate = { id:string; description:string|null; merchant:string|null; amount:string; currency:string; occurredAt:string; kind:string };
-type BankLink = { id:string; name:string; linkMode:'new'|'existing'|null; lastSyncedAt:string|null; automaticPostAfter:string|null };
+type BankLink = { id:string; name:string; linkMode:'new'|'existing'|null; lastSyncedAt:string|null; automaticPostAfter:string|null; historyIgnoredBefore:string|null; unresolvedReviewCount:number };
 type Connection = { id:string; accounts:BankLink[] };
 const get = async <T,>(path:string) => (await apiRequest<ApiEnvelope<T>>(path)).data;
 const post = async (path:string, body?:unknown) => apiRequest(path,{method:'POST',...(body===undefined?{}:jsonBody(body))});
@@ -22,14 +22,23 @@ export default function BankingReconciliationPage() {
   const connections=useQuery({queryKey:['banking','connections'],queryFn:()=>get<Connection[]>('/api/banking/connections')});
   const complete=useMutation({mutationFn:(id:string)=>post(`/api/banking/links/${id}/complete-initial-review`),onSuccess:()=>qc.invalidateQueries({queryKey:['banking']})});
   const refresh=async()=>{await Promise.all([qc.invalidateQueries({queryKey:['banking']}),qc.invalidateQueries({queryKey:['transactions']}),qc.invalidateQueries({queryKey:['dashboard']}),qc.invalidateQueries({queryKey:['accounts']})]);};
+  const [notice,setNotice]=useState('');
+  const startToday=useMutation({mutationFn:(id:string)=>post(`/api/banking/links/${id}/start-from-today`),onSuccess:async()=>{
+    setNotice('Imported history was ignored. Your manual transactions and recorded balance were kept. New items booked today still need review; later booking dates can post automatically.');
+    await refresh();
+  }});
   const existing=connections.data?.flatMap(connection=>connection.accounts.filter(link=>link.linkMode==='existing'||(production&&link.linkMode==='new')))??[];
   return <>
-    <PageHeader eyebrow="Open banking" title="Bank reconciliation" description="Resolve historical movements that may already exist as manual entries, and review changes to posted bank records. Later movements post automatically after initial review." />
+    <PageHeader eyebrow="Open banking" title="Bank reconciliation" description="Keep your manual history and start bank imports from today, or review historical items individually. Changes to previously imported entries always need review." />
     <Link to="/banking" className="mb-5 inline-block text-sm font-semibold text-brand underline">Back to Banking</Link>
+    {notice&&<Card className="mb-4"><p role="status" className="text-sm">{notice}</p></Card>}
     {connections.isPending||reviews.isPending?<LoadingState/>:connections.isError?<ErrorState error={connections.error} retry={()=>connections.refetch()}/>:reviews.isError?<ErrorState error={reviews.error} retry={()=>reviews.refetch()}/>:<>
       {existing.map(link=>{
-        const unresolved=reviews.data?.filter(item=>item.bankAccountLinkId===link.id&&item.ledgerTransactionId===null).length??0;
-        return <Card key={link.id} className="mb-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold">{link.name}</h2><p className="text-sm text-muted">{unresolved} historical movements still need a decision.</p></div><Badge tone={link.automaticPostAfter?'positive':'warning'}>{link.automaticPostAfter?'Future imports automatic':'Initial review'}</Badge></div>
+        const unresolved=link.unresolvedReviewCount;
+        return <Card key={link.id} className="mb-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold">{link.name}</h2><p className="text-sm text-muted">{unresolved} items still need a decision.</p></div><Badge tone={link.automaticPostAfter?'positive':'warning'}>{link.automaticPostAfter?'Future imports automatic':'Initial review'}</Badge></div>
+          {link.historyIgnoredBefore?<p className="mt-3 text-sm text-muted">Manual history kept. Bank items dated before {link.historyIgnoredBefore} stay ignored. New items on the start date need review to prevent duplicates.</p>:<div className="mt-3 rounded-2xl border border-brand/10 p-3"><p className="text-sm font-semibold">Already tracking this account manually?</p><p className="mt-1 text-sm text-muted">Keep your recorded transactions and balance. Ignore the imported backlog, including items already fetched today, and start importing new activity. New items booked today still need review; later dates can post automatically.</p><Button className="mt-3" disabled={!link.lastSyncedAt||startToday.isPending} loading={startToday.isPending&&startToday.variables===link.id} onClick={()=>{
+            if(confirm(`Start importing from today for ${link.name}? Unposted bank items already imported through today will be ignored. Your manual transactions and balance will stay unchanged. New items booked today still need review.`))startToday.mutate(link.id);
+          }}>Start importing from today</Button>{!link.lastSyncedAt&&<p className="mt-2 text-sm text-muted">Sync this bank account first.</p>}<FormError error={startToday.variables===link.id?startToday.error:null}/></div>}
           {!link.automaticPostAfter&&<><p className="mt-3 text-sm text-muted">Match a manual entry or post each historical movement below. Once the first bank sync is complete and none remain, enable automatic posting for later booking dates.</p><Button className="mt-3" disabled={!link.lastSyncedAt||unresolved>0||complete.isPending} onClick={()=>complete.mutate(link.id)}>Complete initial review</Button><FormError error={complete.error}/></>}
         </Card>;
       })}

@@ -41,6 +41,10 @@ interface Link { id: string; connection_id: string; provider_account_id: string;
 async function stagePage(pool: pg.Pool, userId: string, link: Link, records: BankTransaction[], ordinals: Map<string, number>): Promise<void> {
   await withUserTransaction(pool, userId, async (client) => {
     await client.query(`UPDATE bank_connections SET sync_lease_until=now()+interval '5 minutes' WHERE id=$1`,[link.connection_id]);
+    // Serialize page ingestion with the start-from-today action. A later page
+    // or overlapping sync cannot restore deliberately excluded history.
+    const cutoff = (await client.query<{ history_ignored_before:string|null }>(
+      `SELECT history_ignored_before::text FROM bank_account_links WHERE id=$1 FOR UPDATE`,[link.id])).rows[0]?.history_ignored_before;
     for (const record of records) {
       let parsedAmount = normalizeBankAmount(record.amount);
       if (parsedAmount === null) throw new BankingProviderError('invalid_provider_amount');
@@ -83,6 +87,9 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
         RETURNING id,ledger_transaction_id,match_status`,
         [userId,link.id,key,record.entryReference,record.status,record.direction,parsedAmount,record.currency,record.occurredOn,record.merchant,record.description,record.counterpartyHash]);
       const staged = result.rows[0]!;
+      if (cutoff && record.status==='BOOK' && record.occurredOn<cutoff && !staged.ledger_transaction_id) {
+        await client.query(`UPDATE bank_transactions SET match_status='ignored' WHERE id=$1`,[staged.id]);
+      }
       if (['CNCL','RJCT'].includes(record.status) && staged.ledger_transaction_id) {
         const pair = await client.query(`SELECT id FROM bank_transfer_pairs WHERE debit_bank_transaction_id=$1 OR credit_bank_transaction_id=$1`, [staged.id]);
         if (pair.rowCount) await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`, [staged.id]);
