@@ -1,7 +1,7 @@
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnableBankingProvider, retryAfterSeconds } from '../src/server/domains/banking/enableBanking.js';
-import { effectiveSyncIntervalMinutes } from '../src/server/domains/banking/sync.js';
+import { effectiveSyncIntervalMinutes, normalizeBankAmount } from '../src/server/domains/banking/sync.js';
 import { BankingProviderError } from '../src/server/domains/banking/provider.js';
 import { BankingSecrets } from '../src/server/domains/banking/secrets.js';
 import { geminiAvailable, minimalBankingText, parseGeminiDecision } from '../src/server/domains/banking/gemini.js';
@@ -11,6 +11,17 @@ const { privateKey } = generateKeyPairSync('rsa',{modulusLength:2048});
 const pem = privateKey.export({type:'pkcs8',format:'pem'}).toString();
 const data = (body:unknown,status=200) => new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
 afterEach(()=>vi.unstubAllGlobals());
+
+describe('exact bank amount normalization',()=>{
+  it.each([['0.00','0'],['-0.000000','0'],['+0012.300000','12.3'],['-12.30','12.30'],
+    ['12.3000','12.3000'],
+    ['0.00010','0.0001'],['999999999999999.9999','999999999999999.9999']])('normalizes %s without rounding', (input,expected)=>{
+    expect(normalizeBankAmount(input)).toBe(expected);
+  });
+  it.each(['0.00001','1000000000000000.00','1e2','12,30','NaN',''])('rejects unrepresentable or malformed %s',input=>{
+    expect(normalizeBankAmount(input)).toBeNull();
+  });
+});
 
 describe('Enable Banking sandbox adapter',()=>{
   it('rejects a production application before any bank call',async()=>{

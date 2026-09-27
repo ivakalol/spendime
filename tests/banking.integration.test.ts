@@ -131,11 +131,13 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     expect((await b.get('/api/accounts').expect(200)).body.data.map((item:any)=>item.id)).not.toContain(eurAccount);
     expect((await a.get('/api/accounts').expect(200)).body.data.map((item:any)=>item.id)).not.toContain(ordinaryAccount);
     await b.get(`/api/accounts/${eurAccount}`).expect(404);
-    bank.entries.set('A-eur',[tx('expense-1','debit','20.00','EUR','Shop'),tx('pending-1','debit','7.00','EUR','Taxi','PDNG'),tx('refund-1','credit','5.00','EUR','Shop')]);
+    bank.entries.set('A-eur',[tx('expense-1','debit','20.000000','EUR','Shop'),tx('pending-1','debit','7.00','EUR','Taxi','PDNG'),tx('refund-1','credit','5.00','EUR','Shop'),tx('zero-verification','debit','0.00','EUR','Card verification','PDNG')]);
     bank.entries.set('A-bgn',[tx('expense-bgn','debit','10.00','BGN','Market')]);
     await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
     const count=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE status='BOOK' AND match_status='posted'`)).rows[0].n);
     expect(count).toBe(3);
+    const zeroCount=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE entry_reference='zero-verification'`)).rows[0].n);
+    expect(zeroCount).toBe(0);
     const dashboard=await a.get(`/api/dashboard?timeframe=daily&anchor=${today}`).expect(200);
     expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualSpending)).toBe(15);
     expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualIncome)).toBe(0);
@@ -275,7 +277,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await expect(syncConnection(pool,bank,secrets,userA,connectionId,true)).rejects.toThrow('mock outage');
     expect((await a.get('/api/banking/connections').expect(200)).body.data.find((x:any)=>x.id===connectionId).errorCode).toBe('sync_failed');
     bank.outage=false;
-    bank.entries.set('A-bgn',[tx('expense-bgn','debit','10.00','BGN','Market','CNCL'),tx('fx-in','credit','60.00','BGN','Own transfer')]);
+    bank.entries.set('A-bgn',[tx('expense-bgn','debit','0.00','BGN','Market','CNCL'),tx('fx-in','credit','60.00','BGN','Own transfer')]);
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
     const dashboard=await a.get(`/api/dashboard?timeframe=daily&anchor=${today}`).expect(200);
     expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='BGN')?.actualSpending)).toBe(0);

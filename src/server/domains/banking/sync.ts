@@ -7,10 +7,21 @@ import { BankingProviderError } from './provider.js';
 import type { BankingSecrets } from './secrets.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-const amount = (value: string) => {
-  const normalized = value.replace(/^-/, '');
-  return /^\d{1,15}(\.\d{1,4})?$/.test(normalized) && Number(normalized) > 0 ? normalized : null;
-};
+export function normalizeBankAmount(value: string): string | null {
+  // Direction comes from the provider's debit/credit indicator. Normalize decimal
+  // strings exactly; floating point rounding must never alter imported money.
+  const match = /^[+-]?(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) return null;
+  const whole = match[1]!.replace(/^0+(?=\d)/, '');
+  const fraction = (match[2] ?? '').replace(/0+$/, '');
+  if (whole.length > 15 || fraction.length > 4) return null;
+  if (whole === '0' && !fraction) return '0';
+  // Preserve the representation used by existing fallback identity hashes, so
+  // already imported entries without bank references cannot become duplicates.
+  const legacy = value.replace(/^-/, '');
+  if (/^\d{1,15}(\.\d{1,4})?$/.test(legacy)) return legacy;
+  return fraction ? `${whole}.${fraction}` : whole;
+}
 const signedBalance = (value: string) => /^-?\d{1,15}(\.\d{1,4})?$/.test(value) ? value : null;
 const DEFAULT_SYNC_INTERVAL_MINUTES = 360;
 
@@ -31,8 +42,18 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
   await withUserTransaction(pool, userId, async (client) => {
     await client.query(`UPDATE bank_connections SET sync_lease_until=now()+interval '5 minutes' WHERE id=$1`,[link.connection_id]);
     for (const record of records) {
-      const parsedAmount = amount(record.amount);
-      if (!parsedAmount) throw new BankingProviderError('invalid_provider_amount');
+      let parsedAmount = normalizeBankAmount(record.amount);
+      if (parsedAmount === null) throw new BankingProviderError('invalid_provider_amount');
+      if (parsedAmount === '0') {
+        const existing = record.entryReference ? (await client.query<{ amount: string }>(
+          `SELECT amount FROM bank_transactions WHERE bank_account_link_id=$1 AND identity_key=$2`,
+          [link.id, `ref:${hash(record.entryReference)}`])).rows[0] : undefined;
+        // New zero-value authorizations have no financial effect. A cancellation
+        // of an existing movement must still reverse that movement's ledger entry.
+        if (!existing) continue;
+        if (!['CNCL','RJCT'].includes(record.status)) throw new BankingProviderError('invalid_provider_zero_adjustment');
+        parsedAmount = existing.amount;
+      }
       const signature = hash(JSON.stringify([record.direction,parsedAmount,record.currency,record.occurredOn,record.merchant,record.description]));
       const ordinal = (ordinals.get(signature) ?? 0) + 1;
       ordinals.set(signature, ordinal);
@@ -211,6 +232,7 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
     // Log only fixed diagnostic labels and HTTP/SQL status codes. Never include
     // provider payloads, request URLs, account identifiers, tokens, or SQL text.
     const knownCodes = new Set(['EXPIRED_SESSION','provider_unavailable','invalid_provider_response',
+      'invalid_provider_amount','invalid_provider_zero_adjustment',
       'production_application_required','sandbox_application_required','pagination_limit',
       'ASPSP_RATE_LIMIT_EXCEEDED','RATE_LIMIT_EXCEEDED']);
     const sqlCode = !(error instanceof BankingProviderError) && error !== null && typeof error === 'object' &&
