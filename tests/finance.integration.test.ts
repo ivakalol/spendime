@@ -85,11 +85,16 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     await agentA.get(`/api/accounts/${archiveId}`).expect(404);
   });
 
-  it('supports default/custom categories and protects system categories', async () => {
+  it('customizes user-owned defaults and restores or deletes archived categories', async () => {
     const defaults = await agentA.get('/api/categories').expect(200);
     expect(defaults.body.data.some((category: any) => category.name === 'Food' && category.isSystem)).toBe(true);
-    const systemId = defaults.body.data.find((category: any) => category.isSystem).id;
-    await agentA.patch(`/api/categories/${systemId}`).send({ name: 'Changed' }).expect(409);
+    const systemId = defaults.body.data.find((category: any) => category.name==='Medicine').id;
+    await agentA.patch(`/api/categories/${systemId}`).send({ name: 'Healthcare',color:'#112233' }).expect(200);
+    expect((await agentB.get('/api/categories').expect(200)).body.data.some((item:any)=>item.name==='Medicine')).toBe(true);
+    await agentB.patch(`/api/categories/${systemId}`).send({name:'Unauthorized'}).expect(404);
+    await agentA.delete(`/api/categories/${systemId}/permanent`).expect(409);
+    await agentA.delete(`/api/categories/${systemId}`).expect(204);
+    await agentA.post(`/api/categories/${systemId}/restore`).expect(200);
 
     categoryId = (await agentA.post('/api/categories').send({
       name: 'Learning', kind: 'expense', color: '#123456',
@@ -99,6 +104,13 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
 
     const archiveId = (await agentA.post('/api/categories').send({ name: 'Temporary', kind: 'both' }).expect(201)).body.data.id;
     await agentA.delete(`/api/categories/${archiveId}`).expect(204);
+    await agentA.patch(`/api/categories/${archiveId}`).send({name:'Archived edit'}).expect(409);
+    await agentB.post(`/api/categories/${archiveId}/restore`).expect(404);
+    await agentB.delete(`/api/categories/${archiveId}/permanent`).expect(404);
+    await agentA.post(`/api/categories/${archiveId}/restore`).expect(200);
+    await agentA.delete(`/api/categories/${archiveId}`).expect(204);
+    await agentA.delete(`/api/categories/${archiveId}/permanent`).expect(204);
+    await agentA.get(`/api/categories/${archiveId}`).expect(404);
   });
 
   it('creates standard, income, amortized, and atomic transfer transactions', async () => {
@@ -265,6 +277,24 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     const bank = jan2.body.data.accountBalances.find((row: any) => row.accountId === bankId);
     expect(bank.currentBalance).toBe('3269.7100');
     expect(cash.actualIncome).toBe('100.0000'); // Asset appreciation is not cash income.
+  });
+
+  it('deletes a used default category without deleting transactions or recurring payments',async()=>{
+    const id=(await agentA.get('/api/categories').expect(200)).body.data.find((item:any)=>item.name==='Healthcare').id;
+    const account=(await agentA.post('/api/accounts').send({name:'Category deletion balance',kind:'checking',currency:'EUR',openingBalance:'100.00'}).expect(201)).body.data.id;
+    const transaction=(await agentA.post('/api/transactions').send({kind:'expense',sourceAccountId:account,categoryId:id,amount:'12.00',currency:'EUR',occurredAt:'2026-09-27T12:00:00Z'}).expect(201)).body.data.id;
+    const rule=(await agentA.post('/api/recurring-rules').send({name:'Keep recurring payment',kind:'expense',sourceAccountId:account,categoryId:id,amount:'3.00',currency:'EUR',intervalCount:1,intervalUnit:'month',startsOn:'2026-10-01',nextDueOn:'2026-10-01'}).expect(201)).body.data.id;
+    await withUserTransaction(pool,userA,client=>client.query(`INSERT INTO bank_category_rules(user_id,merchant_key,direction,category_id,source) VALUES($1,'test merchant','debit',$2,'explicit')`,[userA,id]));
+    await agentA.patch(`/api/categories/${id}`).send({kind:'income'}).expect(409);
+    await agentA.patch(`/api/categories/${id}`).send({kind:'both'}).expect(200);
+    const before=(await agentA.get(`/api/accounts/${account}`).expect(200)).body.data.currentBalance;
+    await agentA.delete(`/api/categories/${id}`).expect(204);
+    await agentA.delete(`/api/categories/${id}/permanent`).expect(204);
+    expect((await agentA.get(`/api/transactions/${transaction}`).expect(200)).body.data).toMatchObject({categoryId:null,amount:'12.0000',voidedAt:null});
+    expect((await agentA.get(`/api/recurring-rules/${rule}`).expect(200)).body.data).toMatchObject({categoryId:null,isActive:true});
+    expect((await agentA.get(`/api/accounts/${account}`).expect(200)).body.data.currentBalance).toBe(before);
+    const rules=await withUserTransaction(pool,userA,async client=>(await client.query('SELECT id FROM bank_category_rules WHERE category_id=$1',[id])).rows);
+    expect(rules).toHaveLength(0);
   });
 
   it('voids rather than hard-deletes transactions and removes their analytical impact', async () => {
