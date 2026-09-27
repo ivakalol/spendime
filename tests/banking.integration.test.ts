@@ -23,7 +23,7 @@ class MockBank implements BankingProvider {
   rateLimited=false; retryAfterSeconds=0;
   async institutions(country:string){return ['Mock ASPSP','Second Test Bank'].map(name=>({name,country,beta:false,maximumConsentValiditySeconds:86400}));}
   async begin(input:{state:string}){return {url:`https://auth.enablebanking.com/test?state=${input.state}`};}
-  async complete(code:string){return {sessionId:`session-${code}`,expiresAt:new Date(Date.now()+86400_000).toISOString(),accounts:[
+  async complete(code:string){if(code==='FAIL')throw new BankingProviderError('provider_unavailable');return {sessionId:`session-${code}`,expiresAt:new Date(Date.now()+86400_000).toISOString(),accounts:[
     {providerAccountId:`${code}-eur`,identificationHash:`${code}-eur-hash`,name:'EUR bank',currency:'EUR'},
     {providerAccountId:`${code}-bgn`,identificationHash:`${code}-bgn-hash`,name:'BGN bank',currency:'BGN'},
   ]};}
@@ -151,6 +151,9 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     const state=new URL(start.body.data.authorizationUrl).searchParams.get('state')!;
     await a.get(`/api/banking/callback?state=${state}&code=A`).expect(409)
       .expect(({body})=>expect(body.error.code).toBe('bank_account_already_connected'));
+    const failed = (await a.get('/api/banking/connections').expect(200)).body.data
+      .find((item:any)=>item.id===start.body.data.connectionId);
+    expect(failed).toMatchObject({status:'error',errorCode:'bank_account_already_connected'});
     await a.get(`/api/banking/callback?state=${state}&code=A`).expect(400);
     await withUserTransaction(pool,userA,client=>client.query('DELETE FROM bank_connections WHERE id=$1',[start.body.data.connectionId]));
     const renewed=await a.post(`/api/banking/connections/${connectionId}/renew`).set('Origin',origin).expect(200);
@@ -159,6 +162,16 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     expect(responses.map(r=>r.status).sort()).toEqual([303,400]);
     expect((await a.get(`/api/accounts/${eurAccount}`)).body.data.currentBalance).toBe('-15.0000');
     await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
+  });
+
+  it('records exchange failures without allowing authorization replay',async()=>{
+    const start=await a.post('/api/banking/connections').set('Origin',origin).send({country:'BG',name:'Mock ASPSP'}).expect(201);
+    const state=new URL(start.body.data.authorizationUrl).searchParams.get('state')!;
+    await a.get(`/api/banking/callback?state=${state}&code=FAIL`).expect(502);
+    const failed=(await a.get('/api/banking/connections').expect(200)).body.data.find((item:any)=>item.id===start.body.data.connectionId);
+    expect(failed).toMatchObject({status:'error',errorCode:'authorization_exchange_failed'});
+    await a.get(`/api/banking/callback?state=${state}&code=FAIL`).expect(400);
+    await withUserTransaction(pool,userA,client=>client.query('DELETE FROM bank_connections WHERE id=$1',[start.body.data.connectionId]));
   });
 
   it('schedules only sandbox Mock ASPSP at five minutes and serializes manual syncs',async()=>{

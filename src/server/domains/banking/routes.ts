@@ -184,6 +184,16 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
          AND connection_id IN (SELECT id FROM bank_connections WHERE provider=$2 AND environment=$3) RETURNING connection_id`,
        [stateHash(query.state),bank.id,bank.environment])).rows[0]);
     if (!attempt) throw new ApiError(400, 'invalid_bank_state', 'This bank connection link is invalid or expired.');
+    async function recordFailure(error: unknown) {
+      // Keep an existing consent usable when a renewal fails. Never store provider
+      // messages, authorization codes, or tokens in the connection error field.
+      const code = error instanceof ApiError ? error.code : 'authorization_exchange_failed';
+      await inUserTransaction(pool, request, async (client) => {
+        await client.query(`UPDATE bank_connections SET
+          status=CASE WHEN provider_session_id IS NULL THEN 'error' ELSE status END,
+          error_code=$2 WHERE id=$1`, [attempt!.connection_id, code]);
+      });
+    }
     if (query.error || !query.code) {
       await inUserTransaction(pool, request, async (client) => {
         await client.query(`UPDATE bank_auth_attempts SET consumed_at=now() WHERE state_hash=$1 AND consumed_at IS NULL`, [stateHash(query.state)]);
@@ -193,7 +203,10 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       return;
     }
     let session;
-    try { session = await bank.complete(query.code); } catch (error) { providerError(error); }
+    try { session = await bank.complete(query.code); } catch (error) {
+      await recordFailure(error);
+      providerError(error);
+    }
     const userId = authenticatedUserId(request);
     const priorSession = await withUserTransaction(pool, userId, async (client) => {
 
@@ -223,6 +236,7 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       return prior;
     }).catch(async error => {
       try { await bank.disconnect(session.sessionId); } catch { /* No credentials are logged. */ }
+      await recordFailure(error);
       throw error;
     });
     if (priorSession && secrets!.decrypt(priorSession) !== session.sessionId) {
