@@ -233,6 +233,11 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
     // provider payloads, request URLs, account identifiers, tokens, or SQL text.
     const knownCodes = new Set(['EXPIRED_SESSION','provider_unavailable','invalid_provider_response',
       'invalid_provider_amount','invalid_provider_zero_adjustment',
+      'ACCESS_DENIED','PSU_HEADER_NOT_PROVIDED','WRONG_REQUEST_PARAMETERS',
+      'WRONG_TRANSACTIONS_PERIOD','WRONG_DATE_INTERVAL','WRONG_CONTINUATION_KEY',
+      'DATE_FROM_IN_FUTURE','DATE_TO_WITHOUT_DATE_FROM','ASPSP_ERROR','ASPSP_TIMEOUT',
+      'ASPSP_PSU_ACTION_REQUIRED','ASPSP_ACCOUNT_NOT_ACCESSIBLE','ACCOUNT_DOES_NOT_EXIST',
+      'WRONG_SESSION_STATUS','CLOSED_SESSION',
       'production_application_required','sandbox_application_required','pagination_limit',
       'ASPSP_RATE_LIMIT_EXCEEDED','RATE_LIMIT_EXCEEDED']);
     const sqlCode = !(error instanceof BankingProviderError) && error !== null && typeof error === 'object' &&

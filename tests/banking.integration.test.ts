@@ -136,6 +136,8 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
     const count=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE status='BOOK' AND match_status='posted'`)).rows[0].n);
     expect(count).toBe(3);
+    const syncedConnection=(await a.get('/api/banking/connections').expect(200)).body.data.find((item:any)=>item.id===connectionId);
+    expect(syncedConnection.canSync).toBe(false);
     const zeroCount=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE entry_reference='zero-verification'`)).rows[0].n);
     expect(zeroCount).toBe(0);
     const dashboard=await a.get(`/api/dashboard?timeframe=daily&anchor=${today}`).expect(200);

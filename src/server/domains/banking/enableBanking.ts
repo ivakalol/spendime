@@ -135,9 +135,11 @@ export class EnableBankingProvider implements BankingProvider {
 
   async transactions(accountId: string, options: { from?: string; next?: string; initial: boolean }): Promise<BankTransactionPage> {
     const params = new URLSearchParams();
-    if (options.next) params.set('continuation_key', options.next);
-    else if (options.initial) params.set('strategy', 'longest');
+    // Continuation requests must retain the first page's query parameters.
+    // Dropping strategy/date_from changes the provider's pagination context.
+    if (options.initial) params.set('strategy', 'longest');
     else if (options.from) params.set('date_from', options.from);
+    if (options.next) params.set('continuation_key', options.next);
     const data = await this.request(`/accounts/${encodeURIComponent(accountId)}/transactions?${params}`);
     if (!Array.isArray(data.transactions)) throw new BankingProviderError('invalid_provider_response');
     const transactions: BankTransaction[] = data.transactions.map((x: Json) => {

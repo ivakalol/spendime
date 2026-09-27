@@ -24,6 +24,29 @@ describe('exact bank amount normalization',()=>{
 });
 
 describe('Enable Banking sandbox adapter',()=>{
+  it.each([
+    {initial:true,expectedKey:'strategy',expectedValue:'longest'},
+    {initial:false,from:'2026-09-01',expectedKey:'date_from',expectedValue:'2026-09-01'},
+  ])('preserves pagination query parameters for $expectedKey',async({expectedKey,expectedValue,...options})=>{
+    const queries:URLSearchParams[]=[];
+    const key='opaque+key/with=characters';
+    vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+      if(url.endsWith('/application'))return data({environment:'SANDBOX',active:true});
+      queries.push(new URL(url).searchParams);
+      return data({transactions:[],continuation_key:queries.length===1?key:null});
+    }));
+    const provider=new EnableBankingProvider('test-app',pem);
+    const first=await provider.transactions('account-1',options);
+    expect(first.transactions).toEqual([]);
+    await provider.transactions('account-1',{...options,next:first.next!});
+    expect(queries).toHaveLength(2);
+    expect(queries[0]!.get(expectedKey)).toBe(expectedValue);
+    expect(queries[1]!.get(expectedKey)).toBe(expectedValue);
+    expect(queries[1]!.get('continuation_key')).toBe(key);
+    queries[1]!.delete('continuation_key');
+    expect(queries[1]!.toString()).toBe(queries[0]!.toString());
+  });
+
   it('rejects a production application before any bank call',async()=>{
     const fetchMock=vi.fn().mockResolvedValue(data({environment:'PRODUCTION',active:true}));
     vi.stubGlobal('fetch',fetchMock);

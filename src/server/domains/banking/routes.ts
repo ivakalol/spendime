@@ -120,7 +120,9 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     const data = await inUserTransaction(pool, request, async (client) => {
       const connections = (await client.query(`SELECT id,provider,environment,institution_name AS "institutionName",
           institution_country AS "institutionCountry",status,consent_expires_at AS "consentExpiresAt",
-          last_synced_at AS "lastSyncedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode",(sync_lease_until>now()) AS "syncing" FROM bank_connections
+          last_synced_at AS "lastSyncedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode",(sync_lease_until>now()) AS "syncing",
+          (status='active' AND (next_sync_at IS NULL OR next_sync_at<=now())
+            AND (sync_lease_until IS NULL OR sync_lease_until<=now())) AS "canSync" FROM bank_connections
           WHERE provider=$1 AND environment=$2 ORDER BY created_at DESC`,[bank.id,bank.environment])).rows;
       const links = (await client.query(`SELECT l.id,l.connection_id AS "connectionId",l.name,l.currency,
           l.account_id AS "accountId",l.reported_balance AS "reportedBalance",l.balance_as_of AS "balanceAsOf",
