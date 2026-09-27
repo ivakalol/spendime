@@ -139,15 +139,19 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
     return result.rows[0];
   });
   if (!connection) return false;
+  let stage = 'session';
   try {
     if (connection.consent_expires_at && connection.consent_expires_at.getTime() <= Date.now()) throw new BankingProviderError('EXPIRED_SESSION');
     if (await provider.sessionStatus(secrets.decrypt(connection.provider_session_id)) !== 'active') throw new BankingProviderError('EXPIRED_SESSION');
+    stage = 'load_accounts';
     const links = await withUserTransaction(pool,userId,async (client) =>
       (await client.query<Link>(`SELECT id,connection_id,provider_account_id,account_id,link_mode,currency,last_synced_at
       FROM bank_account_links WHERE connection_id=$1 ORDER BY id`, [connectionId])).rows);
     for (const link of links) {
+      stage = 'balance';
       const balance = await provider.balance(link.provider_account_id);
       if (balance && balance.currency === link.currency && signedBalance(balance.amount) !== null) {
+        stage = 'save_balance';
         await withUserTransaction(pool,userId,async (client) => {
           await client.query(`UPDATE bank_account_links SET reported_balance=$2,balance_as_of=coalesce($3::timestamptz,now()) WHERE id=$1`,
             [link.id,balance.amount,balance.asOf]);
@@ -156,15 +160,18 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
       const ordinals = new Map<string,number>();
       let next: string | null = null;
       for (let page=0;page<500;page++) {
+        stage = 'transactions';
         const data: import('./provider.js').BankTransactionPage = await provider.transactions(link.provider_account_id, {
           ...(link.last_synced_at ? { from: new Date(link.last_synced_at.getTime()-7*86400_000).toISOString().slice(0,10) } : {}),
           ...(next ? { next } : {}), initial: !link.last_synced_at,
         });
+        stage = 'save_transactions';
         await stagePage(pool,userId,link,data.transactions,ordinals);
         next = data.next;
         if (!next) break;
         if (page === 499) throw new BankingProviderError('pagination_limit');
       }
+      stage = 'post_transactions';
       await withUserTransaction(pool,userId,async (client) => {
         const currentLink = (await client.query<{ account_id:string|null; link_mode:'new'|'existing'|null; automatic_post_after:Date|null }>(
           'SELECT account_id,link_mode,automatic_post_after FROM bank_account_links WHERE id=$1 FOR UPDATE',[link.id])).rows[0];
@@ -193,6 +200,7 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
         await client.query(`UPDATE bank_account_links SET last_synced_at=now() WHERE id=$1`,[link.id]);
       });
     }
+    stage = 'finish_sync';
     await withUserTransaction(pool,userId,async (client) => {
       await client.query(`UPDATE bank_connections SET last_synced_at=now(),
         next_sync_at=now()+($2::integer*interval '1 minute'),sync_lease_until=NULL,error_code=NULL WHERE id=$1`,
@@ -200,6 +208,21 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
           { environment:connection.environment,institutionName:connection.institution_name },sandboxIntervalMinutes)]);
     });
   } catch (error) {
+    // Log only fixed diagnostic labels and HTTP/SQL status codes. Never include
+    // provider payloads, request URLs, account identifiers, tokens, or SQL text.
+    const knownCodes = new Set(['EXPIRED_SESSION','provider_unavailable','invalid_provider_response',
+      'production_application_required','sandbox_application_required','pagination_limit',
+      'ASPSP_RATE_LIMIT_EXCEEDED','RATE_LIMIT_EXCEEDED']);
+    const sqlCode = !(error instanceof BankingProviderError) && error !== null && typeof error === 'object' &&
+      'code' in error && typeof error.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? error.code : undefined;
+    console.error('Bank synchronization failed', {
+      stage,
+      kind: error instanceof BankingProviderError ? 'provider' : sqlCode ? 'database' : 'internal',
+      ...(error instanceof BankingProviderError ? {
+        code: knownCodes.has(error.code) ? error.code : 'other_provider_error',
+        httpStatus: error.httpStatus,
+      } : sqlCode ? { code: sqlCode } : {}),
+    });
     const expired = error instanceof BankingProviderError && error.code === 'EXPIRED_SESSION';
     const limited = error instanceof BankingProviderError &&
       (error.code.includes('RATE_LIMIT') || error.code==='http_429' || error.httpStatus===429);
