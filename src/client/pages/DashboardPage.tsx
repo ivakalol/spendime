@@ -14,7 +14,7 @@ import { useLanguage } from '../i18n';
 export { TrendChart } from '../components/LegacyTrend';
 
 const periodStorageKey = 'spendime.dashboard.period';
-const periods = [['day','Day'],['week','Last week'],['month','Last month'],['year','Last year'],['total','Total']] as const;
+const periods = [['day','Day'],['week','Week'],['month','Month'],['year','Year'],['total','Total']] as const;
 type Period = (typeof periods)[number][0];
 function savedPeriod(): Period {
   try {
