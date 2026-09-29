@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useDashboard, useMe, useSavePreferences } from '../api/queries';
 import { Button, Card, ErrorState, Field, FormError, Input, LoadingState, PageHeader, Select } from '../components/ui';
@@ -12,13 +12,29 @@ import { addCalendarDays, todayInTimezone } from '../utils/dateTime';
 import { formatMoney } from '../utils/money';
 export { TrendChart } from '../components/LegacyTrend';
 
+const periodStorageKey = 'spendime.dashboard.period';
+const rangeStorageKey = 'spendime.dashboard.customRange';
+const periods = ['this-week','this-month','last-month','last-30-days','this-year','custom'];
+function savedPeriod() {
+  try { const value=localStorage.getItem(periodStorageKey); return value && periods.includes(value) ? value : 'this-month'; }
+  catch { return 'this-month'; }
+}
+function savedRange(defaultRange:{from:string;to:string}) {
+  try {
+    const value=JSON.parse(localStorage.getItem(rangeStorageKey)??'null');
+    return value && /^\d{4}-\d{2}-\d{2}$/.test(value.from) && /^\d{4}-\d{2}-\d{2}$/.test(value.to) && value.from<=value.to && (Date.parse(value.to)-Date.parse(value.from))/86400000<=730 ? value as {from:string;to:string} : defaultRange;
+  } catch { return defaultRange; }
+}
+
 export default function DashboardPage() {
   const me = useMe();
-  const [timeframe,setTimeframe] = useState('this-month');
+  const [timeframe,setTimeframe] = useState(savedPeriod);
   const today=todayInTimezone(me.data?.timezone??'UTC');
-  const [from,setFrom] = useState(today.slice(0,7)+'-01');
-  const [to,setTo] = useState(today);
-  const [range,setRange] = useState({from,to});
+  const [range,setRange] = useState(()=>savedRange({from:today.slice(0,7)+'-01',to:today}));
+  const [from,setFrom] = useState(range.from);
+  const [to,setTo] = useState(range.to);
+  useEffect(()=>{try { localStorage.setItem(periodStorageKey,timeframe); } catch {}},[timeframe]);
+  useEffect(()=>{try { localStorage.setItem(rangeStorageKey,JSON.stringify(range)); } catch {}},[range]);
   const [selectedCurrency,setSelectedCurrency] = useState('');
   const [adding,setAdding] = useState(false);
   const [account,setAccount] = useState(false);
