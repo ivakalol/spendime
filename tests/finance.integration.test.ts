@@ -265,6 +265,9 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     expect(jan1.body.data.cashFlow).toEqual([]);
 
     const jan2 = await agentA.get('/api/dashboard?timeframe=daily&anchor=2026-01-02').expect(200);
+    const fullHistory = await agentA.get('/api/dashboard?timeframe=custom&from=2023-01-01&to=2026-01-02').expect(200);
+    expect(fullHistory.body.data.bounds.startLocal).toBe('2023-01-01');
+    expect(fullHistory.body.data.cashFlow.find((row: any) => row.currency === 'EUR')).toBeDefined();
     const cash = jan2.body.data.cashFlow.find((row: any) => row.currency === 'EUR');
     expect(cash).toMatchObject({
       actualSpending: '1229.9900', actualIncome: '100.0000', ordinaryNetCashFlow: '-1129.9900',

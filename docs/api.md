@@ -232,6 +232,8 @@ or automatic transaction generation.
 
 `GET /api/dashboard?timeframe=monthly&anchor=2026-01-15`
 
+`GET /api/dashboard?timeframe=custom&from=2025-09-30&to=2026-09-29`
+
 Timeframes are `daily`, `weekly`, `monthly`, `6-month`, and `annual`. `anchor`
 defaults to today's date in the user's configured IANA timezone.
 
@@ -243,6 +245,7 @@ Calendar semantics:
 - monthly starts on the first local day of the month;
 - 6-month includes the anchor month and the five preceding months;
 - annual is the local calendar year;
+- custom accepts an inclusive local `from` and `to` date, including full-history ranges;
 - local boundaries are converted independently with `AT TIME ZONE`, so daylight
   saving changes are respected rather than approximated with a fixed offset.
 

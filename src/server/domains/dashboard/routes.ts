@@ -10,8 +10,8 @@ const querySchema=z.object({
   timeframe:z.enum(['daily','weekly','monthly','6-month','annual','this-week','this-month','last-month','last-30-days','this-year','custom']).default('monthly'),
   anchor:dateSchema.optional(), from:dateSchema.optional(), to:dateSchema.optional(),
 }).superRefine((value,ctx)=>{
-  if(value.timeframe==='custom' && (!value.from || !value.to || value.to<value.from || (Date.parse(value.to)-Date.parse(value.from))/86400000>730))
-    ctx.addIssue({code:'custom',path:['to'],message:'Choose a valid range of up to 731 days.'});
+  if(value.timeframe==='custom' && (!value.from || !value.to || value.to<value.from))
+    ctx.addIssue({code:'custom',path:['to'],message:'Choose a valid date range.'});
 });
 
 export function createDashboardRouter(pool:pg.Pool):Router{
