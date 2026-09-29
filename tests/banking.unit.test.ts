@@ -84,10 +84,17 @@ describe('Enable Banking sandbox adapter',()=>{
     expect(await provider.sessionStatus('session-1')).toBe('active');
     expect((await provider.balance('account-1'))?.amount).toBe('-5.00');
     const transactions=(await provider.transactions('account-1',{initial:true})).transactions;
-    expect(transactions[0]).toMatchObject({status:'BOOK',direction:'debit',description:'Card purchase Shop',entryReference:'stable-1',occurredOn:'2026-09-20'});
+    expect(transactions[0]).toMatchObject({status:'BOOK',direction:'debit',description:'Card purchase Shop',entryReference:'stable-1',occurredOn:'2026-09-20',
+      bookingDate:'2026-09-20',valueDate:'2026-09-19'});
     expect(transactions[1]).toMatchObject({status:'BOOK',direction:'credit',entryReference:'stable-2',occurredOn:'2026-09-21'});
     expect(transactions[2]).toMatchObject({status:'PDNG',direction:'debit',occurredOn:'2026-09-23'});
     expect(calls.filter(x=>x.endsWith('/application'))).toHaveLength(1);
+  });
+
+  it('treats revoked bank authorization as expired consent',async()=>{
+    vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.endsWith('/application')
+      ? data({environment:'SANDBOX',active:true}) : data({status:'REVOKED'})));
+    expect(await new EnableBankingProvider('test-app',pem).sessionStatus('revoked')).toBe('expired');
   });
 
   it('surfaces provider rate limits without disclosing response payloads',async()=>{

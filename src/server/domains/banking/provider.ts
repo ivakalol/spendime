@@ -17,6 +17,10 @@ export interface BankTransaction {
   amount: string;
   currency: string;
   occurredOn: string;
+  bookingDate?: string | null;
+  transactionDate?: string | null;
+  valueDate?: string | null;
+  providerTransactionId?: string | null;
   merchant: string | null;
   description: string | null;
   counterpartyHash: string | null;

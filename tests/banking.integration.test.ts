@@ -19,7 +19,9 @@ const tx=(reference:string,direction:'debit'|'credit',amount:string,currency:str
 class MockBank implements BankingProvider {
   readonly id='enable_banking'; readonly environment='sandbox' as const;
   entries=new Map<string,BankTransaction[]>();
+  pages=new Map<string,BankTransaction[][]>();
   expired=false; outage=false;
+  outageAccounts=new Set<string>();
   rateLimited=false; retryAfterSeconds=0;
   async institutions(country:string){return ['Mock ASPSP','Second Test Bank'].map(name=>({name,country,beta:false,maximumConsentValiditySeconds:86400}));}
   async begin(input:{state:string}){return {url:`https://auth.enablebanking.com/test?state=${input.state}`};}
@@ -29,7 +31,10 @@ class MockBank implements BankingProvider {
   ]};}
   async sessionStatus(){return this.expired?'expired' as const:'active' as const;}
   async balance(id:string){return {amount:id.endsWith('eur')?'0.00':'100.00',currency:id.endsWith('eur')?'EUR':'BGN',asOf:null};}
-  async transactions(id:string){if(this.rateLimited)throw new BankingProviderError('ASPSP_RATE_LIMIT_EXCEEDED',this.retryAfterSeconds,429);if(this.outage)throw new Error('mock outage');return {transactions:this.entries.get(id)??[],next:null};}
+  async transactions(id:string,options:{next?:string}={}){if(this.rateLimited)throw new BankingProviderError('ASPSP_RATE_LIMIT_EXCEEDED',this.retryAfterSeconds,429);if(this.outage||this.outageAccounts.has(id))throw new Error('mock outage');
+    const pages=this.pages.get(id);if(!pages)return {transactions:this.entries.get(id)??[],next:null};
+    const index=options.next?Number(options.next):0;
+    return {transactions:pages[index]??[],next:index+1<pages.length?String(index+1):null};}
   async disconnect(){return;}
 }
 
@@ -328,7 +333,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await syncConnection(pool,bank,secrets,userA,historyConnection,true);
     const statuses=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT id,entry_reference,match_status,ledger_transaction_id FROM bank_transactions WHERE bank_account_link_id=$1`,[historyLink])).rows);
     expect(statuses.find(x=>x.entry_reference==='later-booked')?.match_status).toBe('posted');
-    expect(statuses.find(x=>x.entry_reference==='possible-duplicate')?.match_status).toBe('review');
+    expect(statuses.find(x=>x.entry_reference==='possible-duplicate')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:futureManual});
     expect((await a.get(`/api/transactions/${futureManual}`).expect(200)).body.data.voidedAt).toBeNull();
     expect(statuses.find(x=>x.entry_reference==='same-day-late')?.match_status).toBe('review');
     expect(statuses.find(x=>x.entry_reference==='later-pending')?.ledger_transaction_id).toBeNull();
@@ -395,6 +400,98 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await a.post(`/api/banking/connections/${id}/disconnect`).set('Origin',origin).expect(204);
     await a.delete(`/api/banking/connections/${id}/data`).set('Origin',origin).expect(204);
     await withUserTransaction(pool,userA,client=>client.query(`UPDATE users SET timezone='UTC' WHERE id=$1`,[userA]));
+  });
+
+  it('automatically matches only one safe manual entry and keeps user fields',async()=>{
+    const categoryId=(await a.get('/api/categories').expect(200)).body.data.find((x:any)=>x.name==='Food').id;
+    const otherAccount=(await a.post('/api/accounts').send({name:'Unrelated account',kind:'checking',currency:'EUR',openingBalance:'0'}).expect(201)).body.data.id;
+    const bgnAccount=(await a.get('/api/banking/connections').expect(200)).body.data
+      .find((x:any)=>x.id===connectionId).accounts.find((x:any)=>x.currency==='BGN').accountId;
+    const day=(offset:number)=>new Date(Date.parse(`${today}T12:00:00Z`)+offset*86400_000).toISOString().slice(0,10);
+    const manual=async(amount:string,kind:'expense'|'income',accountId:string,currency='EUR',offset=0)=>
+      withUserTransaction(pool,userA,async client=>(await client.query<{id:string}>(`INSERT INTO transactions
+        (user_id,kind,source_account_id,destination_account_id,category_id,amount,currency,occurred_at,description,merchant)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,'My own note','My own title') RETURNING id`,
+        [userA,kind,kind==='expense'?accountId:null,kind==='income'?accountId:null,kind==='expense'?categoryId:null,amount,currency,`${day(offset)}T12:00:00Z`])).rows[0]!.id);
+    const exact=await manual('201','expense',eurAccount);
+    await manual('202','expense',eurAccount);await manual('202','expense',eurAccount);
+    await manual('203','expense',eurAccount);
+    await manual('204','expense',eurAccount,'BGN');
+    await manual('205','expense',otherAccount);
+    const inside=await manual('206','expense',eurAccount,'EUR',-2);
+    await manual('207','expense',eurAccount,'EUR',-3);
+    await manual('208','income',eurAccount);
+    bank.entries.set('A-eur',[
+      tx('auto-exact','debit','201','EUR','Bank title'),
+      tx('auto-ambiguous','debit','202','EUR','Bank title'),
+      tx('auto-direction','credit','203','EUR','Bank title'),
+      tx('auto-currency','debit','204','EUR','Bank title'),
+      tx('auto-account','debit','205','EUR','Bank title'),
+      tx('auto-inside','debit','206','EUR','Bank title'),
+      tx('auto-outside','debit','207','EUR','Bank title'),
+      tx('auto-pending','credit','208','EUR','Bank title','PDNG'),
+    ]);
+    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    const rows=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT entry_reference,match_status,ledger_transaction_id
+      FROM bank_transactions WHERE bank_account_link_id=$1 AND entry_reference LIKE 'auto-%'`,[eurLink])).rows);
+    const byRef=(ref:string)=>rows.find(x=>x.entry_reference===ref);
+    expect(byRef('auto-exact')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:exact});
+    expect(byRef('auto-inside')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:inside});
+    expect(byRef('auto-ambiguous')).toMatchObject({match_status:'review',ledger_transaction_id:null});
+    for(const ref of ['auto-direction','auto-currency','auto-account','auto-outside'])
+      expect(byRef(ref)?.match_status).toBe('posted');
+    const preserved=(await a.get(`/api/transactions/${exact}`).expect(200)).body.data;
+    expect(preserved).toMatchObject({categoryId,description:'My own note',merchant:'My own title',bankSynced:true});
+    const imported=(await a.get(`/api/transactions/${byRef('auto-direction')!.ledger_transaction_id}`).expect(200)).body.data;
+    expect(imported).toMatchObject({kind:'income',categoryId:null,bankSynced:true});
+    expect(byRef('auto-pending')).toMatchObject({match_status:'new',ledger_transaction_id:null});
+    bank.entries.set('A-eur',[{...tx('auto-pending','credit','208','EUR','Final bank title'),occurredOn:day(1)}]);
+    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    const pending=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT count(*)::integer AS count,
+      max(ledger_transaction_id::text) AS ledger FROM bank_transactions WHERE bank_account_link_id=$1 AND entry_reference='auto-pending'`,[eurLink])).rows[0]);
+    expect(pending.count).toBe(1);
+    expect(pending.ledger).toBeTruthy();
+    expect((await a.get(`/api/transactions/${pending.ledger}`).expect(200)).body.data).toMatchObject({kind:'income',bankSynced:true});
+  });
+
+  it('continues through empty bank pages before importing later pages',async()=>{
+    bank.pages.set('A-eur',[[],[tx('page-two','debit','3.14','EUR','Page two')]]);
+    try {
+      await syncConnection(pool,bank,secrets,userA,connectionId,true);
+      const row=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT match_status,ledger_transaction_id
+        FROM bank_transactions WHERE bank_account_link_id=$1 AND entry_reference='page-two'`,[eurLink])).rows[0]);
+      expect(row).toMatchObject({match_status:'posted'});
+      expect(row.ledger_transaction_id).toBeTruthy();
+    } finally {bank.pages.delete('A-eur');}
+  });
+
+  it('keeps the scheduled worker moving when one connection fails and expires old consent',async()=>{
+    const before=await withUserTransaction(pool,userA,async client=>(await client.query<{last_synced_at:Date|null}>(
+      `SELECT last_synced_at FROM bank_connections WHERE id=$1`,[secondId])).rows[0]?.last_synced_at);
+    await withUserTransaction(pool,userA,async client=>{
+      await client.query(`UPDATE bank_connections SET next_sync_at=now()-interval '1 minute'
+        WHERE id=ANY($1::uuid[])`,[[connectionId,secondId]]);
+    });
+    bank.outageAccounts.add('A-eur');
+    try {await syncDueConnections(pool,bank,secrets,5,userA);}
+    finally {bank.outageAccounts.clear();}
+    const results=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT id,error_code,last_synced_at,
+      last_sync_attempt_at,last_sync_failed_at FROM bank_connections WHERE id=ANY($1::uuid[])`,[[connectionId,secondId]])).rows);
+    expect(results.find(x=>x.id===connectionId)).toMatchObject({error_code:'sync_failed'});
+    expect(results.find(x=>x.id===connectionId)?.last_sync_failed_at).toBeTruthy();
+    expect(results.find(x=>x.id===connectionId)?.last_sync_attempt_at).toBeTruthy();
+    expect(new Date(results.find(x=>x.id===secondId)?.last_synced_at).getTime()).toBeGreaterThan(new Date(before??0).getTime());
+    await withUserTransaction(pool,userA,async client=>{
+      await client.query(`UPDATE bank_connections SET consent_expires_at=now()-interval '1 second',next_sync_at=now()-interval '1 minute' WHERE id=$1`,[connectionId]);
+    });
+    await syncDueConnections(pool,bank,secrets,5,userA);
+    const expired=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT status,error_code FROM bank_connections WHERE id=$1`,[connectionId])).rows[0]);
+    expect(expired).toMatchObject({status:'expired',error_code:'consent_expired'});
+    await withUserTransaction(pool,userA,async client=>{
+      await client.query(`UPDATE bank_connections SET status='active',consent_expires_at=now()+interval '1 day',next_sync_at=now()+interval '1 hour' WHERE id=$1`,[connectionId]);
+    });
   });
 
   it('expires consent and disconnects without deleting imported ledger entries',async()=>{

@@ -123,7 +123,7 @@ export class EnableBankingProvider implements BankingProvider {
 
   async sessionStatus(sessionId: string): Promise<'active' | 'expired' | 'error'> {
     const data = await this.request(`/sessions/${encodeURIComponent(sessionId)}`);
-    return data.status === 'AUTHORIZED' ? 'active' : data.status === 'EXPIRED' || data.status === 'CLOSED' ? 'expired' : 'error';
+    return data.status === 'AUTHORIZED' ? 'active' : ['EXPIRED','CLOSED','REVOKED'].includes(data.status) ? 'expired' : 'error';
   }
 
   async balance(accountId: string): Promise<BankBalance | null> {
@@ -154,6 +154,8 @@ export class EnableBankingProvider implements BankingProvider {
         occurredOn: x.status === 'BOOK'
           ? x.booking_date ?? x.transaction_date ?? x.value_date
           : x.transaction_date ?? x.value_date ?? x.booking_date,
+        bookingDate: x.booking_date ?? null, transactionDate: x.transaction_date ?? null,
+        valueDate: x.value_date ?? null, providerTransactionId: trim(x.transaction_id, 250),
         merchant: trim(party?.name, 120), description: trim(description, 500),
         counterpartyHash: null,
       };

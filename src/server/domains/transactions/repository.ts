@@ -13,6 +13,7 @@ export const TRANSACTION_SELECT = `SELECT
       OR t.occurred_at=(bt.occurred_on+time '12:00:00') AT TIME ZONE 'UTC'
       THEN bt.occurred_on::text ELSE NULL END
     FROM bank_transactions bt WHERE bt.ledger_transaction_id=t.id ORDER BY bt.occurred_on LIMIT 1) AS "bankOccurredOn",
+  EXISTS(SELECT 1 FROM bank_transactions bt WHERE bt.ledger_transaction_id=t.id) AS "bankSynced",
   t.description, t.merchant, t.category_locked AS "categoryLocked",
   t.amortization_start AS "amortizationStart",
   t.amortization_end AS "amortizationEnd",

@@ -22,7 +22,7 @@ export interface Transaction {
   id: string; kind: TransactionKind; method: TransactionMethod; sourceAccountId: string | null;
   destinationAccountId: string | null; categoryId: string | null; assetId: string | null;
   liabilityId: string | null; recurringRuleId: string | null; amount: DecimalString; currency: string;
-  occurredAt: string; bankOccurredOn?: string | null; description: string | null; merchant: string | null; amortizationStart: string | null;
+  occurredAt: string; bankOccurredOn?: string | null; bankSynced?: boolean; description: string | null; merchant: string | null; amortizationStart: string | null;
   amortizationEnd: string | null; dailyImpact: DecimalString | null; voidedAt: string | null; voidReason: string | null;
   createdAt: string; updatedAt: string;
   categoryLocked?: boolean;

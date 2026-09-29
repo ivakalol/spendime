@@ -9,7 +9,7 @@ import { requireAuthentication } from '../../middleware/authenticate.js';
 import { authenticatedUserId, inUserTransaction, requireRow } from '../../routes/helpers.js';
 import { uuidSchema } from '../../validation/common.js';
 import { BankingProviderError, type BankingProvider } from './provider.js';
-import { postStagedTransaction, syncConnection } from './sync.js';
+import { manualMatchCandidates, matchManualTransaction, postStagedTransaction, syncConnection } from './sync.js';
 import { merchantKey } from './categorize.js';
 import { voidTransaction } from '../transactions/repository.js';
 import type { BankingSecrets } from './secrets.js';
@@ -120,7 +120,8 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     const data = await inUserTransaction(pool, request, async (client) => {
       const connections = (await client.query(`SELECT id,provider,environment,institution_name AS "institutionName",
           institution_country AS "institutionCountry",status,consent_expires_at AS "consentExpiresAt",
-          last_synced_at AS "lastSyncedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode",(sync_lease_until>now()) AS "syncing",
+          last_synced_at AS "lastSyncedAt",last_sync_attempt_at AS "lastSyncAttemptAt",
+          last_sync_failed_at AS "lastSyncFailedAt",next_sync_at AS "nextSyncAt",error_code AS "errorCode",(sync_lease_until>now()) AS "syncing",
           (status='active' AND (next_sync_at IS NULL OR next_sync_at<=now())
             AND (sync_lease_until IS NULL OR sync_lease_until<=now())) AS "canSync" FROM bank_connections
           WHERE provider=$1 AND environment=$2 ORDER BY created_at DESC`,[bank.id,bank.environment])).rows;
@@ -276,7 +277,12 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
         ORDER BY occurred_on,CASE direction WHEN 'debit' THEN 0 ELSE 1 END,id`,[id]);
       for (const row of staged.rows) {
         if (input.accountId || bank.environment === 'production') await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[row.id]);
-        else await postStagedTransaction(client,userId,row.id);
+        else {
+          const candidates=await manualMatchCandidates(client,row.id);
+          if(candidates.length===1) await matchManualTransaction(client,row.id,candidates[0]!);
+          else if(candidates.length>1) await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[row.id]);
+          else await postStagedTransaction(client,userId,row.id);
+        }
       }
       await client.query(`UPDATE bank_connections SET next_sync_at=now() WHERE id=$1 AND status='active'
         AND (environment='sandbox' OR last_synced_at IS NULL)`,[link.connection_id]);
@@ -314,16 +320,11 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
 
   router.get('/review/:id/candidates', async (request,response) => {
     const id = uuidSchema.parse(request.params.id);
-    const data = await inUserTransaction(pool,request,async (client) =>
-      (await client.query(`SELECT t.id,t.description,t.merchant,t.amount,t.currency,t.occurred_at AS "occurredAt",t.kind
-        FROM bank_transactions bt JOIN bank_account_links l ON l.id=bt.bank_account_link_id
-        JOIN transactions t ON t.amount=bt.amount AND t.currency=bt.currency
-          AND t.occurred_at::date BETWEEN bt.occurred_on-interval '3 days' AND bt.occurred_on+interval '3 days'
-          AND ((bt.direction='debit' AND t.source_account_id=l.account_id)
-            OR (bt.direction='credit' AND t.destination_account_id=l.account_id))
-        WHERE bt.id=$1 AND bt.match_status='review' AND t.voided_at IS NULL
-          AND NOT EXISTS(SELECT 1 FROM bank_transactions other WHERE other.ledger_transaction_id=t.id)
-        ORDER BY abs(extract(epoch FROM (t.occurred_at-bt.occurred_on::timestamp))) LIMIT 20`,[id])).rows);
+    const data = await inUserTransaction(pool,request,async (client) => {
+      const ids=await manualMatchCandidates(client,id);
+      return ids.length ? (await client.query(`SELECT id,description,merchant,amount,currency,
+        occurred_at AS "occurredAt",kind FROM transactions WHERE id=ANY($1::uuid[])`,[ids])).rows : [];
+    });
     response.json({ data });
   });
 
@@ -360,16 +361,8 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
     const id = uuidSchema.parse(request.params.id);
     const { transactionId } = z.object({ transactionId: uuidSchema }).strict().parse(request.body);
     await inUserTransaction(pool,request,async (client) => {
-      const matched = await client.query(`UPDATE bank_transactions bt SET ledger_transaction_id=$2,match_status='matched_manual'
-        FROM bank_account_links l,transactions t WHERE bt.id=$1 AND bt.match_status='review'
-        AND bt.ledger_transaction_id IS NULL
-        AND l.id=bt.bank_account_link_id AND t.id=$2 AND t.user_id=bt.user_id
-        AND NOT EXISTS(SELECT 1 FROM bank_transactions other WHERE other.ledger_transaction_id=t.id)
-        AND t.voided_at IS NULL AND t.amount=bt.amount AND t.currency=bt.currency
-        AND t.occurred_at::date BETWEEN bt.occurred_on-interval '3 days' AND bt.occurred_on+interval '3 days'
-        AND ((bt.direction='debit' AND t.source_account_id=l.account_id)
-          OR (bt.direction='credit' AND t.destination_account_id=l.account_id)) RETURNING bt.id`,[id,transactionId]);
-      if (!matched.rowCount) throw new ApiError(409,'manual_match_invalid','The selected entry does not match this bank transaction.');
+      if (!await matchManualTransaction(client,id,transactionId))
+        throw new ApiError(409,'manual_match_invalid','The selected entry does not match this bank transaction.');
     });
     response.json({ data: { matched: true } });
   });

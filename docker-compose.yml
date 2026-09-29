@@ -31,6 +31,7 @@ services:
       - ./database/init/004_banking.sql:/docker-entrypoint-initdb.d/004_banking.sql:ro
       - ./database/init/005_banking_reconciliation.sql:/docker-entrypoint-initdb.d/005_banking_reconciliation.sql:ro
       - ./database/init/007_bank_history_cutoff.sql:/docker-entrypoint-initdb.d/007_bank_history_cutoff.sql:ro
+      - ./database/init/008_automatic_bank_ingestion.sql:/docker-entrypoint-initdb.d/008_automatic_bank_ingestion.sql:ro
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
@@ -145,7 +146,6 @@ services:
       - spendime_internal
 
   banking-worker:
-    profiles: ["banking"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -167,7 +167,7 @@ services:
       ENABLE_BANKING_PRODUCTION_PRIVATE_KEY_B64: ${ENABLE_BANKING_PRODUCTION_PRIVATE_KEY_B64:-}
       BANKING_PRODUCTION_ENCRYPTION_KEY_B64: ${BANKING_PRODUCTION_ENCRYPTION_KEY_B64:-}
       BANKING_PRODUCTION_REDIRECT_URI: ${BANKING_PRODUCTION_REDIRECT_URI:-}
-      BANKING_PRODUCTION_WORKER_ENABLED: ${BANKING_PRODUCTION_WORKER_ENABLED:-0}
+      BANKING_PRODUCTION_WORKER_ENABLED: ${BANKING_PRODUCTION_WORKER_ENABLED:-1}
       BANKING_SANDBOX_SYNC_INTERVAL_MINUTES: ${BANKING_SANDBOX_SYNC_INTERVAL_MINUTES:-360}
       GEMINI_ENABLED: ${GEMINI_ENABLED:-0}
       GEMINI_PAID_PROJECT: ${GEMINI_PAID_PROJECT:-0}

@@ -46,6 +46,9 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
     const cutoff = (await client.query<{ history_ignored_before:string|null }>(
       `SELECT history_ignored_before::text FROM bank_account_links WHERE id=$1 FOR UPDATE`,[link.id])).rows[0]?.history_ignored_before;
     for (const record of records) {
+      // Without an entry reference the provider cannot promise continuity from
+      // authorization to booking. Pending rows have no ledger effect anyway.
+      if (['PDNG','HOLD'].includes(record.status) && !record.entryReference) continue;
       let parsedAmount = normalizeBankAmount(record.amount);
       if (parsedAmount === null) throw new BankingProviderError('invalid_provider_amount');
       if (parsedAmount === '0') {
@@ -63,11 +66,15 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
       ordinals.set(signature, ordinal);
       const key = record.entryReference ? `ref:${hash(record.entryReference)}` : `fp:${signature}:${ordinal}`;
       const result = await client.query<{ id: string; ledger_transaction_id: string | null; match_status: string }>(`
-        INSERT INTO bank_transactions(user_id,bank_account_link_id,identity_key,entry_reference,status,direction,amount,currency,occurred_on,merchant,description,counterparty_hash)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        INSERT INTO bank_transactions(user_id,bank_account_link_id,identity_key,entry_reference,status,direction,amount,currency,occurred_on,merchant,description,counterparty_hash,booking_date,transaction_date,value_date,provider_transaction_id)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
         ON CONFLICT(bank_account_link_id,identity_key) DO UPDATE SET
           status=CASE WHEN bank_transactions.status='BOOK' AND excluded.status IN ('PDNG','HOLD') THEN 'BOOK' ELSE excluded.status END,
           entry_reference=COALESCE(bank_transactions.entry_reference,excluded.entry_reference),
+          booking_date=COALESCE(excluded.booking_date,bank_transactions.booking_date),
+          transaction_date=COALESCE(excluded.transaction_date,bank_transactions.transaction_date),
+          value_date=COALESCE(excluded.value_date,bank_transactions.value_date),
+          provider_transaction_id=COALESCE(excluded.provider_transaction_id,bank_transactions.provider_transaction_id),
           match_status=CASE WHEN bank_transactions.ledger_transaction_id IS NOT NULL AND
             (bank_transactions.amount<>excluded.amount OR bank_transactions.currency<>excluded.currency OR
              bank_transactions.occurred_on<>excluded.occurred_on OR bank_transactions.direction<>excluded.direction)
@@ -85,7 +92,8 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
           proposed_merchant=CASE WHEN bank_transactions.ledger_transaction_id IS NOT NULL AND bank_transactions.merchant IS DISTINCT FROM excluded.merchant THEN excluded.merchant ELSE bank_transactions.proposed_merchant END,
           proposed_description=CASE WHEN bank_transactions.ledger_transaction_id IS NOT NULL AND bank_transactions.description IS DISTINCT FROM excluded.description THEN excluded.description ELSE bank_transactions.proposed_description END
         RETURNING id,ledger_transaction_id,match_status`,
-        [userId,link.id,key,record.entryReference,record.status,record.direction,parsedAmount,record.currency,record.occurredOn,record.merchant,record.description,record.counterpartyHash]);
+        [userId,link.id,key,record.entryReference,record.status,record.direction,parsedAmount,record.currency,record.occurredOn,record.merchant,record.description,record.counterpartyHash,
+          record.bookingDate ?? null,record.transactionDate ?? null,record.valueDate ?? null,record.providerTransactionId ?? null]);
       const staged = result.rows[0]!;
       if (cutoff && record.status==='BOOK' && record.occurredOn<cutoff && !staged.ledger_transaction_id) {
         await client.query(`UPDATE bank_transactions SET match_status='ignored' WHERE id=$1`,[staged.id]);
@@ -148,6 +156,36 @@ export async function postStagedTransaction(client: pg.PoolClient, userId: strin
     [row.id,ledgerId,refundId?'refund':'uncategorized']);
 }
 
+export const MANUAL_MATCH_DATE_TOLERANCE_DAYS = 2;
+
+export async function manualMatchCandidates(client: pg.PoolClient, bankTransactionId: string): Promise<string[]> {
+  const result = await client.query<{ id: string }>(`SELECT t.id FROM bank_transactions bt
+    JOIN bank_account_links l ON l.id=bt.bank_account_link_id
+    JOIN users u ON u.id=bt.user_id
+    JOIN transactions t ON t.user_id=bt.user_id AND t.amount=bt.amount AND t.currency=bt.currency
+      AND t.kind=CASE bt.direction WHEN 'debit' THEN 'expense'::transaction_kind ELSE 'income'::transaction_kind END
+      AND t.method='standard' AND t.voided_at IS NULL
+      AND (t.occurred_at AT TIME ZONE u.timezone)::date BETWEEN
+        bt.occurred_on-$2::integer AND bt.occurred_on+$2::integer
+      AND ((bt.direction='debit' AND t.source_account_id=l.account_id AND t.destination_account_id IS NULL)
+        OR (bt.direction='credit' AND t.destination_account_id=l.account_id AND t.source_account_id IS NULL))
+      AND NOT EXISTS(SELECT 1 FROM bank_transactions other WHERE other.ledger_transaction_id=t.id)
+    WHERE bt.id=$1 AND bt.ledger_transaction_id IS NULL ORDER BY t.id LIMIT 20 FOR UPDATE OF t`,
+    [bankTransactionId,MANUAL_MATCH_DATE_TOLERANCE_DAYS]);
+  return result.rows.map(row=>row.id);
+}
+
+export async function matchManualTransaction(client: pg.PoolClient, bankTransactionId: string,
+  transactionId: string): Promise<boolean> {
+  const candidates = await manualMatchCandidates(client,bankTransactionId);
+  if (!candidates.includes(transactionId)) return false;
+  const result = await client.query(`UPDATE bank_transactions SET ledger_transaction_id=$2,
+    match_status='matched_manual',classification_source='manual_match'
+    WHERE id=$1 AND match_status IN ('new','review') AND ledger_transaction_id IS NULL`,
+    [bankTransactionId,transactionId]);
+  return Boolean(result.rowCount);
+}
+
 export async function syncConnection(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets, userId: string,
   connectionId: string, force = false, sandboxIntervalMinutes = DEFAULT_SYNC_INTERVAL_MINUTES): Promise<boolean> {
   const lockClient = await pool.connect();
@@ -160,13 +198,17 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
     const result = await client.query<{ provider_session_id: string; consent_expires_at: Date | null; environment: string; institution_name: string }>(`
       UPDATE bank_connections SET sync_lease_until=now()+interval '5 minutes'
       WHERE id=$1 AND provider=$3 AND environment=$4 AND provider_session_id IS NOT NULL
-        AND status='active' AND (sync_lease_until IS NULL OR sync_lease_until<now())
+        AND status='active' AND (consent_expires_at IS NULL OR consent_expires_at>now())
+        AND (sync_lease_until IS NULL OR sync_lease_until<now())
         AND ($2::boolean OR next_sync_at IS NULL OR next_sync_at<=now())
       RETURNING provider_session_id,consent_expires_at,environment,institution_name`,
       [connectionId,force,provider.id,provider.environment]);
     return result.rows[0];
   });
   if (!connection) return false;
+  await withUserTransaction(pool,userId,async client=>{
+    await client.query('UPDATE bank_connections SET last_sync_attempt_at=now() WHERE id=$1',[connectionId]);
+  });
   let stage = 'session';
   try {
     if (connection.consent_expires_at && connection.consent_expires_at.getTime() <= Date.now()) throw new BankingProviderError('EXPIRED_SESSION');
@@ -204,25 +246,24 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
         const currentLink = (await client.query<{ account_id:string|null; link_mode:'new'|'existing'|null; automatic_post_after:Date|null }>(
           'SELECT account_id,link_mode,automatic_post_after FROM bank_account_links WHERE id=$1 FOR UPDATE',[link.id])).rows[0];
         if (currentLink?.account_id) {
-          const candidates = await client.query<{ id: string; eligible_for_automatic_post:boolean; possible_manual_duplicate:boolean }>(`SELECT bt.id,
+          const candidates = await client.query<{ id: string; eligible_for_automatic_post:boolean }>(`SELECT bt.id,
             (bt.first_seen_at > l.automatic_post_after AND
-             bt.occurred_on > (l.automatic_post_after AT TIME ZONE u.timezone)::date) AS eligible_for_automatic_post,
-            EXISTS(SELECT 1 FROM transactions t WHERE t.user_id=bt.user_id AND t.voided_at IS NULL
-              AND t.amount=bt.amount AND t.currency=bt.currency
-              AND (t.occurred_at AT TIME ZONE u.timezone)::date BETWEEN bt.occurred_on-3 AND bt.occurred_on+3
-              AND ((bt.direction='debit' AND t.source_account_id=l.account_id)
-                OR (bt.direction='credit' AND t.destination_account_id=l.account_id))
-              AND NOT EXISTS(SELECT 1 FROM bank_transactions linked WHERE linked.ledger_transaction_id=t.id)) AS possible_manual_duplicate
+             bt.occurred_on > (l.automatic_post_after AT TIME ZONE u.timezone)::date) AS eligible_for_automatic_post
             FROM bank_account_links l JOIN users u ON u.id=l.user_id
             JOIN bank_transactions bt ON bt.bank_account_link_id=l.id
             WHERE bt.bank_account_link_id=$1 AND bt.status='BOOK' AND bt.match_status='new'
             ORDER BY bt.occurred_on,CASE bt.direction WHEN 'debit' THEN 0 ELSE 1 END,bt.id`, [link.id]);
           for (const candidate of candidates.rows) {
-            if (candidate.possible_manual_duplicate ||
-                ((provider.environment === 'production' || currentLink.link_mode === 'existing') &&
-                  !candidate.eligible_for_automatic_post))
+            if ((provider.environment === 'production' || currentLink.link_mode === 'existing') &&
+                  !candidate.eligible_for_automatic_post)
               await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[candidate.id]);
-            else await postStagedTransaction(client,userId,candidate.id);
+            else {
+              const manual = await manualMatchCandidates(client,candidate.id);
+              if (manual.length === 1) await matchManualTransaction(client,candidate.id,manual[0]!);
+              else if (manual.length > 1)
+                await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[candidate.id]);
+              else await postStagedTransaction(client,userId,candidate.id);
+            }
           }
         }
         await client.query(`UPDATE bank_account_links SET last_synced_at=now() WHERE id=$1`,[link.id]);
@@ -264,7 +305,7 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
       ? error.retryAfterSeconds*1000 : 0;
     await withUserTransaction(pool,userId,async (client) => {
       await client.query(`UPDATE bank_connections SET status=$2,error_code=$3,next_sync_at=$4,
-        sync_lease_until=NULL WHERE id=$1`, [connectionId,expired?'expired':'active',expired?'consent_expired':limited?'rate_limited':'sync_failed',
+        last_sync_failed_at=now(),sync_lease_until=NULL WHERE id=$1`, [connectionId,expired?'expired':'active',expired?'consent_expired':limited?'rate_limited':'sync_failed',
         expired?null:new Date(Date.now()+Math.max((limited?6:1)*3600_000,retryAfterMs))]);
     });
     if (!limited && !expired) throw error;
@@ -295,9 +336,15 @@ export async function rescheduleSandboxMockConnections(pool: pg.Pool, provider: 
 
 export async function syncDueConnections(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets,
   sandboxIntervalMinutes: number, ownerUserId: string): Promise<void> {
+  await withUserTransaction(pool,ownerUserId,async client=>{
+    await client.query(`UPDATE bank_connections SET status='expired',error_code='consent_expired',
+      next_sync_at=NULL,sync_lease_until=NULL WHERE user_id=$1 AND provider=$2 AND environment=$3
+      AND status='active' AND consent_expires_at<=now()`,[ownerUserId,provider.id,provider.environment]);
+  });
   const ids = await withUserTransaction(pool,ownerUserId,async (client) =>
     (await client.query<{ id: string }>(`SELECT id FROM bank_connections WHERE provider=$1 AND environment=$2
       AND user_id=$3 AND status='active' AND next_sync_at<=now()
+      AND (consent_expires_at IS NULL OR consent_expires_at>now())
       AND (sync_lease_until IS NULL OR sync_lease_until<now()) LIMIT 10`,
       [provider.id,provider.environment,ownerUserId])).rows);
   for (const { id } of ids) {

@@ -194,8 +194,20 @@ docker compose up -d --build app
 The migration is additive and safe to rerun. It does not reset the named volume.
 
 The optional Enable Banking sandbox integration has a separate additive migration,
-`database/init/004_banking.sql`, plus an opt-in worker. Apply it only after
+`database/init/004_banking.sql`, plus a server-side worker. Apply it only after
 reviewing [banking setup and migration steps](banking-integration.md).
+
+For existing banking installations, apply `database/init/008_automatic_bank_ingestion.sql`
+before deploying the automatic ingestion code. Fresh databases run it during
+initialization. The Compose banking worker now starts with the stack; production
+sync requires `BANKING_PRODUCTION_ENABLED=1`, `BANKING_PRODUCTION_WORKER_ENABLED=1`,
+and valid owner and provider credentials. Enable Banking background fetches are
+scheduled every six hours to respect banks that allow four fetches per day.
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' < database/init/008_automatic_bank_ingestion.sql
+docker compose up -d --build
+```
 
 ## Completely reset the development database
 
