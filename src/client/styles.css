@@ -219,3 +219,51 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
   main header > div:last-child { max-width: 100%; }
   .money-value { overflow-wrap: anywhere; }
 }
+
+/* Phone layouts share density rules; tablet and desktop retain their existing styles. */
+@media (max-width: 639px) {
+  .mobile-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mobile-kpis > :last-child { grid-column: 1 / -1; }
+  .mobile-pair-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mobile-pair-grid > * { min-width: 0; overflow-wrap: anywhere; }
+  .mobile-kpis .money-value { font-size: clamp(1rem, 4vw, 1.125rem); }
+  .mobile-entity-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 45%); column-gap: .75rem; align-items: start; }
+  .mobile-entity-card > div:not([aria-hidden]) { grid-column: 1 / -1; margin-bottom: .5rem; }
+  .mobile-entity-card > h2 { grid-column: 1; grid-row: 2; min-width: 0; margin-top: 0; }
+  .mobile-entity-card > .money-value { grid-column: 2; grid-row: 2; min-width: 0; margin-top: 0; text-align: right; font-size: 1.25rem; }
+  .mobile-entity-card > p:not(.money-value) { min-width: 0; margin-top: .25rem; overflow-wrap: anywhere; }
+  .mobile-entity-card > p:last-child { text-align: right; }
+  .mobile-entity-card > button:last-child { grid-column: 1 / -1; justify-self: start; margin-top: .25rem; }
+  .transaction-row { align-items: start; }
+  .modal-header { padding-right: 1rem; padding-left: 1rem; }
+  .modal-scroll { padding-right: 1rem; padding-left: 1rem; }
+  .modal-scroll form.grid { row-gap: .875rem; }
+  .modal-scroll label.grid { row-gap: .375rem; }
+  .modal-actions { gap: .5rem; }
+}
+@media (min-width: 380px) and (max-width: 639px) {
+  .mobile-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .mobile-kpis > :last-child { grid-column: auto; }
+  .transaction-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .transaction-amount { grid-column: 3; display: block; border-top: 0; padding-top: 0; }
+  .transaction-amount > div { gap: 0; }
+  .transaction-amount button { width: 50%; justify-content: center; font-size: 0; }
+  .transaction-amount button svg { width: 1rem; height: 1rem; }
+}
+@media (min-width: 360px) and (max-width: 639px) {
+  .dashboard-heading header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .5rem; }
+  .dashboard-heading header > div:first-child { display: contents; }
+  .dashboard-heading header > div:first-child > p:first-child { grid-column: 1; grid-row: 1; }
+  .dashboard-heading header h1 { grid-column: 1; grid-row: 2; }
+  .dashboard-heading header > div:first-child > p:last-child { grid-column: 1 / -1; grid-row: 3; }
+  .dashboard-heading header > div:last-child { grid-column: 2; grid-row: 1 / span 2; }
+  .dashboard-heading header > div:last-child button { padding-right: .75rem; padding-left: .75rem; }
+}
+@media (max-width: 379px) {
+  .mobile-kpis > :last-child { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 45%); column-gap: .5rem; align-items: center; }
+  .mobile-kpis > :last-child > .money-value { grid-column: 2; grid-row: 1; margin-top: 0; text-align: right; }
+  .mobile-kpis > :last-child > p:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 359px) {
+  .mobile-pair-grid { grid-template-columns: minmax(0, 1fr); }
+}

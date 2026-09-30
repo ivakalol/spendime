@@ -13,7 +13,7 @@ export function SpendingDonut({ rows, currency }: { rows: DashboardData['spendin
   const [selected, setSelected] = useState<string | null>(null);
   return <Card className="min-w-0"><h2 className="font-bold">Where your money went</h2><p className="mt-1 text-sm text-muted">Spending by category · {currency}</p>
     {breakdown.slices.length ? <>
-      <div className="relative h-60" role="img" aria-label={`Spending proportions in ${currency}. Exact values and percentages listed below.`}>
+      <div className="relative h-52 sm:h-60" role="img" aria-label={`Spending proportions in ${currency}. Exact values and percentages listed below.`}>
         <ResponsiveContainer><PieChart><Pie data={breakdown.slices} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="88%" paddingAngle={2} isAnimationActive={false} onClick={slice=>setSelected(slice.name??null)}>
           {breakdown.slices.map((slice,index)=><Cell key={slice.name} fill={colors[index]} opacity={selected && selected!==slice.name ? .4 : 1}/>)}</Pie>
           <Tooltip formatter={(_,__,entry)=>`${formatMoney(entry.payload.exact,currency)} · ${entry.payload.percentage}`}/></PieChart></ResponsiveContainer>
@@ -97,17 +97,17 @@ export function SpendingTrend({ data, currency, period }: { data: DashboardData;
   return <Card className="min-w-0">
     <h2 className="font-bold">Money over time</h2>
     <p className="mt-1 text-sm text-muted">{t('Selected trends')} · {currency}</p>
-    <div role="group" aria-label={t('Chart series')} className="mt-4 flex flex-wrap gap-2">
+    <div role="group" aria-label={t('Chart series')} className="mt-3 flex flex-wrap gap-1.5 sm:mt-4 sm:gap-2">
       {series.map(({key,label,color})=><label key={key} className="cursor-pointer">
         <input type="checkbox" className="peer sr-only" checked={visible[key]} onChange={event=>toggle(key,event.target.checked)}/>
-        <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-brand/15 px-3 text-sm font-semibold text-muted transition-colors hover:border-brand/30 peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-accent">
+        <span className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-brand/15 px-2 text-xs font-semibold text-muted transition-colors hover:border-brand/30 peer-checked:border-brand peer-checked:bg-brand peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-accent sm:gap-2 sm:px-3 sm:text-sm">
           <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{backgroundColor:color}}/>{t(label)}
         </span>
       </label>)}
     </div>
     <p className="mt-3 text-xs leading-relaxed text-muted">Actual spending is recorded on the purchase date. Cost spread over use days distributes amortized purchases across their use period.</p>
     {meaningfulKeys.length ? <>
-      <div className="mt-6 h-64" role="img" aria-label={`${t('Selected trends')} over time in ${currency}; values available in the table below.`}>
+      <div className="mt-4 h-56 sm:mt-6 sm:h-64" role="img" aria-label={`${t('Selected trends')} over time in ${currency}; values available in the table below.`}>
         <ResponsiveContainer><AreaChart data={rows} margin={{left:0,right:12}}>
           <CartesianGrid vertical={false} stroke="#e2e5df"/>
           <XAxis dataKey="date" tickFormatter={value=>monthly?value.slice(0,7):value.slice(5)} tick={{fontSize:11}} minTickGap={24}/>

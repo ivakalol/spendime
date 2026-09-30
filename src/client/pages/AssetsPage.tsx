@@ -23,7 +23,7 @@ export default function AssetsPage() {
   const [selected, setSelected] = useState<Asset | null>(null);
   return <>
     <PageHeader eyebrow="Ownership" title="Assets" description="Things you own that have financial value, such as a car, a home or an investment." action={<Button onClick={() => setCreate(true)}><Plus className="size-4" />Add asset</Button>} />
-    {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.length === 0 ? <EmptyState icon={<BarChart3 />} title="No assets yet" description="Add an investment, depreciating item, or custom asset to track its value over time." action={<Button onClick={() => setCreate(true)}>Create asset</Button>} /> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{query.data.map((asset) => <button key={asset.id} onClick={() => setSelected(asset)} className="group min-w-0 rounded-3xl text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas active:scale-[.99]"><AssetCard asset={asset} /></button>)}</div>}
+    {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.length === 0 ? <EmptyState icon={<BarChart3 />} title="No assets yet" description="Add an investment, depreciating item, or custom asset to track its value over time." action={<Button onClick={() => setCreate(true)}>Create asset</Button>} /> : <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">{query.data.map((asset) => <button key={asset.id} onClick={() => setSelected(asset)} className="group min-w-0 rounded-3xl text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas active:scale-[.99]"><AssetCard asset={asset} /></button>)}</div>}
     <CreateAsset open={create} onClose={() => setCreate(false)} />
     {selected && <AssetDetail asset={selected} onClose={() => setSelected(null)} />}
   </>;
@@ -32,7 +32,7 @@ export default function AssetsPage() {
 export function AssetCard({ asset }: { asset: Asset }) {
   const {t}=useLanguage();
   const sign = decimalSign(asset.absoluteReturn);
-  return <Card className={`card-lift h-full overflow-hidden ${asset.isArchived ? 'opacity-50' : ''}`}>
+  return <Card className={`mobile-entity-card card-lift h-full overflow-hidden ${asset.isArchived ? 'opacity-50' : ''}`}>
     <div aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${asset.classification === 'appreciating' ? 'bg-emerald-500' : asset.classification === 'depreciating' ? 'bg-amber-500' : 'bg-blue-500'}`} />
     <div className="flex items-center justify-between"><span className={`grid size-11 place-items-center rounded-2xl ring-1 ring-inset ring-black/[.035] ${asset.classification === 'appreciating' ? 'bg-emerald-50 text-emerald-800' : asset.classification === 'depreciating' ? 'bg-amber-50 text-amber-900' : 'bg-blue-50 text-blue-800'}`}>{asset.classification === 'depreciating' ? <TrendingDown /> : <TrendingUp />}</span><Badge>{asset.isArchived ? 'Archived' : asset.classification}</Badge></div>
     <h2 className="mt-5 break-words font-bold tracking-tight">{asset.name}</h2>

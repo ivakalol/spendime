@@ -40,7 +40,7 @@ it('uses segmented periods, refetches on navigation, and restores the period typ
   const first=open();
   expect(screen.queryByRole('combobox',{name:'Period'})).toBeNull();
   expect(screen.queryByRole('combobox',{name:/View currency/})).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'Last week'}));
+  fireEvent.click(screen.getByRole('button',{name:'Week'}));
   expect(useDashboard).toHaveBeenLastCalledWith('custom',undefined,...Object.values(dashboardWindow('week',0,today)),true);
   expect(localStorage.getItem('spendime.dashboard.period')).toBe('week');
   expect(screen.getByRole('button',{name:'Next period'}).hasAttribute('disabled')).toBe(true);
@@ -48,7 +48,7 @@ it('uses segmented periods, refetches on navigation, and restores the period typ
   expect(useDashboard).toHaveBeenLastCalledWith('custom',undefined,...Object.values(dashboardWindow('week',1,today)),true);
   first.unmount();
   open();
-  expect(screen.getByRole('button',{name:'Last week'}).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('button',{name:'Week'}).getAttribute('aria-pressed')).toBe('true');
   expect(useDashboard).toHaveBeenLastCalledWith('custom',undefined,...Object.values(dashboardWindow('week',0,today)),true);
 });
 
