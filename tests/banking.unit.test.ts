@@ -1,7 +1,7 @@
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnableBankingProvider, retryAfterSeconds } from '../src/server/domains/banking/enableBanking.js';
-import { effectiveSyncIntervalMinutes, normalizeBankAmount } from '../src/server/domains/banking/sync.js';
+import { bankFetchFrom, effectiveSyncIntervalMinutes, normalizeBankAmount } from '../src/server/domains/banking/sync.js';
 import { BankingProviderError } from '../src/server/domains/banking/provider.js';
 import { BankingSecrets } from '../src/server/domains/banking/secrets.js';
 import { geminiAvailable, minimalBankingText, parseGeminiDecision } from '../src/server/domains/banking/gemini.js';
@@ -23,9 +23,18 @@ describe('exact bank amount normalization',()=>{
   });
 });
 
+describe('bank fetch cursor',()=>{
+  it('uses observed booking dates with a delayed-booking overlap',()=>{
+    expect(bankFetchFrom(null)).toBeUndefined();
+    expect(bankFetchFrom('2026-09-30')).toBe('2026-07-02');
+    expect(bankFetchFrom('invalid')).toBeUndefined();
+  });
+});
+
 describe('Enable Banking sandbox adapter',()=>{
   it.each([
     {initial:true,expectedKey:'strategy',expectedValue:'longest'},
+    {initial:true,from:'2026-07-02',expectedKey:'date_from',expectedValue:'2026-07-02'},
     {initial:false,from:'2026-09-01',expectedKey:'date_from',expectedValue:'2026-09-01'},
   ])('preserves pagination query parameters for $expectedKey',async({expectedKey,expectedValue,...options})=>{
     const queries:URLSearchParams[]=[];

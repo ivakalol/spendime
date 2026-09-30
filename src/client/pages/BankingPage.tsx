@@ -12,6 +12,9 @@ import { formatMoney } from '../utils/money';
 type Institution = { name:string; country:string; beta:boolean };
 type Link = { id:string; name:string; currency:string; accountId:string|null; linkMode:string|null; automaticPostAfter:string|null; reviewCount:number; reportedBalance:string|null; balanceAsOf:string|null; balanceStatus:string; lastSyncedAt:string|null; ledgerBalance:string|null };
 type Connection = { syncing:boolean; canSync?:boolean; id:string; provider:string; environment:string; institutionName:string; institutionCountry:string; status:string; consentExpiresAt:string|null; lastSyncedAt:string|null; nextSyncAt:string|null; errorCode:string|null; accounts:Link[] };
+type SyncResult = { fetched:number;booked:number;pending:number;newBankTransactions:number;
+  updatedBankTransactions:number;duplicatesSkipped:number;ignored:number;review:number;
+  merged:number;created:number;unlinked:number;accounts:number };
 const get = async <T,>(path:string) => (await apiRequest<ApiEnvelope<T>>(path)).data;
 const post = async <T,>(path:string, body?:unknown) => (await apiRequest<ApiEnvelope<T>>(path,{method:'POST',...(body===undefined?{}:jsonBody(body))})).data;
 const date = (value:string|null, timezone:string) => value ? formatInTimezone(value, timezone) : 'Not yet';
@@ -23,6 +26,7 @@ export default function BankingPage() {
   const timezone=me.data?.timezone??'UTC';
   const [country,setCountry]=useState('BG'); const [search,setSearch]=useState('');
   const [notice,setNotice]=useState(new URLSearchParams(location.search).get('result'));
+  const [syncResults,setSyncResults]=useState<Record<string,SyncResult>>({});
   const institutions=useQuery({queryKey:['banking','institutions',country],queryFn:()=>get<Institution[]>(`/api/banking/institutions?country=${country}`),retry:false});
   const connections=useQuery({queryKey:['banking','connections'],queryFn:()=>get<Connection[]>('/api/banking/connections'),refetchInterval:30_000,retry:false});
   const accounts=useAccounts(false);
@@ -30,7 +34,9 @@ export default function BankingPage() {
   const connect=useMutation({mutationFn:(bank:Institution)=>post<{authorizationUrl:string}>('/api/banking/connections',{country:bank.country,name:bank.name}),onSuccess:(value)=>{location.assign(value.authorizationUrl);}});
   const renew=useMutation({mutationFn:(id:string)=>post<{authorizationUrl:string}>(`/api/banking/connections/${id}/renew`),onSuccess:(value)=>{location.assign(value.authorizationUrl);}});
   // Even a failed sync changes its retry schedule and may stage bank history.
-  const sync=useMutation({mutationFn:(id:string)=>post(`/api/banking/connections/${id}/sync`),onSettled:refresh});
+  const sync=useMutation({mutationFn:(id:string)=>post<SyncResult>(`/api/banking/connections/${id}/sync`),
+    onMutate:(id)=>setSyncResults(previous=>{const next={...previous};delete next[id];return next;}),
+    onSuccess:(result,id)=>setSyncResults(previous=>({...previous,[id]:result})),onSettled:refresh});
   const disconnect=useMutation({mutationFn:(id:string)=>apiRequest(`/api/banking/connections/${id}/disconnect`,{method:'POST'}),onSuccess:refresh});
   const forget=useMutation({mutationFn:(id:string)=>apiRequest(`/api/banking/connections/${id}/data`,{method:'DELETE'}),onSuccess:refresh});
   const link=useMutation({mutationFn:({id,accountId}:{id:string;accountId:string|null})=>post(`/api/banking/links/${id}/link`,{accountId}),onSuccess:refresh});
@@ -49,9 +55,15 @@ export default function BankingPage() {
     {connections.isPending?<LoadingState/>:connections.isError?<ErrorState error={connections.error} retry={()=>connections.refetch()}/>:!connections.data?.length?<EmptyState icon={<Landmark/>} title="No banks connected" description="Select a bank above to start a secure authorization."/>:<div className="grid gap-4">{connections.data.map((connection)=><Card key={connection.id}><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="break-words font-bold">{connection.institutionName}</h3><p className="text-xs text-muted">Last sync: {date(connection.lastSyncedAt,timezone)} · Consent ends: {date(connection.consentExpiresAt,timezone)}</p></div><Badge tone={connection.syncing?'info':connection.status==='active'?'positive':'warning'}>{connection.syncing?'Syncing…':connection.status.replaceAll('_',' ')}</Badge></div>
       {connection.errorCode&&<p className="mt-2 text-sm text-amber-800">{connection.errorCode==='consent_expired'?'Authorization expired. Renew to resume syncing.':connection.errorCode==='rate_limited'?'Bank requests are temporarily limited. Sync will retry later.':connection.errorCode==='bank_account_already_connected'?'This account is already connected. Use the existing connected bank below.':connection.errorCode==='authorization_exchange_failed'?'Bank authorization could not be completed. Reconnect to start a fresh attempt.':connection.errorCode==='bank_currency_changed'?'The bank changed the account currency. Review the existing account before importing more history.':connection.errorCode==='authorization_failed'?'Authorization failed. Renew and try again.':connection.errorCode==='remote_revocation_unconfirmed'?'Local access was removed, but the bank did not confirm remote revocation. Revoke Spendime in your bank settings if needed.':'The last sync failed. Try again later.'}</p>}
       <div className="mt-4 grid gap-3">{connection.accounts.map((item)=><BankLink key={item.id} item={item} accounts={accounts.data??[]} link={link} reconcile={reconcile} canLink={connection.status==='active'} production={production}/>)}</div>
+      <SyncSummary result={syncResults[connection.id]}/>
       <p className="mt-3 text-xs text-muted">{connection.syncing?'Your bank data is updating. This page refreshes automatically.':connection.nextSyncAt?`Automatic sync enabled · Next automatic sync: ${date(connection.nextSyncAt,timezone)}`:connection.status==='authorizing'?'Finish authorization with your bank to start importing.':connection.status==='active'?'Ready to sync':'Reconnect to resume importing.'}</p><div className="mt-4 flex flex-wrap gap-2"><Button variant="secondary" disabled={connection.syncing||sync.isPending||connection.status!=='active'||!(connection.canSync??(!connection.nextSyncAt||new Date(connection.nextSyncAt)<=new Date()))} onClick={()=>sync.mutate(connection.id)}><RefreshCw className="size-4"/>Sync now</Button><Button variant="secondary" disabled={renew.isPending} onClick={()=>renew.mutate(connection.id)}>Reconnect</Button><Button variant="danger" disabled={disconnect.isPending||connection.status==='disconnected'} onClick={()=>{if(confirm(`Disconnect ${connection.institutionName}? Imported transactions remain in your ledger.`))disconnect.mutate(connection.id);}}><Unplug className="size-4"/>Disconnect</Button>{connection.status==='disconnected'&&<Button variant="danger" disabled={forget.isPending} onClick={()=>{if(confirm('Remove stored bank connection and staging data? Imported ledger entries remain.'))forget.mutate(connection.id);}}>Remove bank data</Button>}</div><FormError error={(sync.variables===connection.id?sync.error:null)||(renew.variables===connection.id?renew.error:null)||(disconnect.variables===connection.id?disconnect.error:null)||(forget.variables===connection.id?forget.error:null)}/>
     </Card>)}</div>}
   </>;
+}
+
+function SyncSummary({result}:{result:SyncResult|undefined}) {
+  if(!result)return null;
+  return <p role="status" className="mt-3 text-xs text-muted">Fetched {result.fetched} ({result.booked} booked, {result.pending} pending) · New {result.newBankTransactions} · Merged {result.merged} · Created {result.created} · Review {result.review} · Unlinked {result.unlinked}</p>;
 }
 
 function BankLink({item,accounts,link,reconcile,canLink,production}:{item:Link;accounts:Account[];link:any;reconcile:any;canLink:boolean;production:boolean}) {

@@ -7,7 +7,7 @@ import { loadConfig } from '../src/server/config.js';
 import { assertSafeRuntimeRole, createPool } from '../src/server/db/pool.js';
 import { withUserTransaction } from '../src/server/db/transactions.js';
 import type { BankTransaction, BankingProvider } from '../src/server/domains/banking/provider.js';
-import { rescheduleSandboxMockConnections, syncConnection, syncDueConnections } from '../src/server/domains/banking/sync.js';
+import { bankFetchFrom, rescheduleSandboxMockConnections, syncConnection, syncDueConnections } from '../src/server/domains/banking/sync.js';
 import { BankingSecrets } from '../src/server/domains/banking/secrets.js';
 import { BankingProviderError } from '../src/server/domains/banking/provider.js';
 
@@ -20,6 +20,7 @@ class MockBank implements BankingProvider {
   readonly id='enable_banking'; readonly environment='sandbox' as const;
   entries=new Map<string,BankTransaction[]>();
   pages=new Map<string,BankTransaction[][]>();
+  requests:{id:string;options:{from?:string;next?:string;initial:boolean}}[]=[];
   expired=false; outage=false;
   outageAccounts=new Set<string>();
   rateLimited=false; retryAfterSeconds=0;
@@ -31,7 +32,7 @@ class MockBank implements BankingProvider {
   ]};}
   async sessionStatus(){return this.expired?'expired' as const:'active' as const;}
   async balance(id:string){return {amount:id.endsWith('eur')?'0.00':'100.00',currency:id.endsWith('eur')?'EUR':'BGN',asOf:null};}
-  async transactions(id:string,options:{next?:string}={}){if(this.rateLimited)throw new BankingProviderError('ASPSP_RATE_LIMIT_EXCEEDED',this.retryAfterSeconds,429);if(this.outage||this.outageAccounts.has(id))throw new Error('mock outage');
+  async transactions(id:string,options:{from?:string;next?:string;initial:boolean}={initial:true}){this.requests.push({id,options});if(this.rateLimited)throw new BankingProviderError('ASPSP_RATE_LIMIT_EXCEEDED',this.retryAfterSeconds,429);if(this.outage||this.outageAccounts.has(id))throw new Error('mock outage');
     const pages=this.pages.get(id);if(!pages)return {transactions:this.entries.get(id)??[],next:null};
     const index=options.next?Number(options.next):0;
     return {transactions:pages[index]??[],next:index+1<pages.length?String(index+1):null};}
@@ -138,18 +139,21 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await b.get(`/api/accounts/${eurAccount}`).expect(404);
     bank.entries.set('A-eur',[tx('expense-1','debit','20.000000','EUR','Shop'),tx('pending-1','debit','7.00','EUR','Taxi','PDNG'),tx('refund-1','credit','5.00','EUR','Shop'),tx('zero-verification','debit','0.00','EUR','Card verification','PDNG')]);
     bank.entries.set('A-bgn',[tx('expense-bgn','debit','10.00','BGN','Market')]);
-    await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
-    const count=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE status='BOOK' AND match_status='posted'`)).rows[0].n);
-    expect(count).toBe(3);
+    const firstSync=await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
+    expect(firstSync.body.data).toMatchObject({fetched:5,booked:3,pending:2,newBankTransactions:4,created:4,merged:0});
+    const count=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE ledger_transaction_id IS NOT NULL AND match_status='posted'`)).rows[0].n);
+    expect(count).toBe(4);
     const syncedConnection=(await a.get('/api/banking/connections').expect(200)).body.data.find((item:any)=>item.id===connectionId);
     expect(syncedConnection.canSync).toBe(false);
     const zeroCount=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE entry_reference='zero-verification'`)).rows[0].n);
     expect(zeroCount).toBe(0);
+    const pendingAtDiscovery=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT status,match_status,ledger_transaction_id FROM bank_transactions WHERE entry_reference='pending-1'`)).rows[0]);
+    expect(pendingAtDiscovery).toMatchObject({status:'PDNG',match_status:'posted',ledger_transaction_id:expect.any(String)});
     const dashboard=await a.get(`/api/dashboard?timeframe=daily&anchor=${today}`).expect(200);
-    expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualSpending)).toBe(15);
+    expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualSpending)).toBe(22);
     expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualIncome)).toBe(0);
     expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='BGN')?.actualSpending)).toBe(10);
-    expect(Number((await a.get(`/api/accounts/${eurAccount}`).expect(200)).body.data.currentBalance)).toBe(-15);
+    expect(Number((await a.get(`/api/accounts/${eurAccount}`).expect(200)).body.data.currentBalance)).toBe(-22);
     await b.get('/api/banking/connections').expect(403);
   });
 
@@ -169,7 +173,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     const renewedState=new URL(renewed.body.data.authorizationUrl).searchParams.get('state')!;
     const responses=await Promise.all([a.get(`/api/banking/callback?state=${renewedState}&code=A`),a.get(`/api/banking/callback?state=${renewedState}&code=A`)]);
     expect(responses.map(r=>r.status).sort()).toEqual([303,400]);
-    expect((await a.get(`/api/accounts/${eurAccount}`)).body.data.currentBalance).toBe('-15.0000');
+    expect((await a.get(`/api/accounts/${eurAccount}`)).body.data.currentBalance).toBe('-22.0000');
     await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(200);
   });
 
@@ -204,12 +208,14 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
   });
 
   it('incrementally books pending entries once and preserves a corrected category',async()=>{
+    const pendingBefore=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT id,ledger_transaction_id FROM bank_transactions WHERE entry_reference='pending-1'`)).rows[0]);
     bank.entries.set('A-eur',[tx('expense-1','debit','20.00','EUR','Shop'),tx('pending-1','debit','7.00','EUR','Taxi'),tx('refund-1','credit','5.00','EUR','Shop')]);
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
     const posted=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT count(*)::integer AS n FROM bank_transactions WHERE entry_reference='pending-1' AND match_status='posted'`)).rows[0].n);
     expect(posted).toBe(1);
     const txId=await withUserTransaction(pool,userA,async(client)=>(await client.query(`SELECT ledger_transaction_id AS id FROM bank_transactions WHERE entry_reference='pending-1'`)).rows[0].id);
+    expect(txId).toBe(pendingBefore.ledger_transaction_id);
     expect((await a.get(`/api/transactions/${txId}`).expect(200)).body.data.categoryId).toBeNull();
     const categories=(await a.get('/api/categories').expect(200)).body.data;
     const categoryId=categories.find((x:any)=>x.name==='Food').id;
@@ -275,7 +281,10 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
 
   it('defers on rate limits, survives outages, and reverses cancelled bank entries',async()=>{
     bank.rateLimited=true;bank.retryAfterSeconds=8*3600;
-    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    await withUserTransaction(pool,userA,client=>client.query(`UPDATE bank_connections SET next_sync_at=now()-interval '1 minute' WHERE id=$1`,[connectionId]));
+    await a.post(`/api/banking/connections/${connectionId}/sync`).set('Origin',origin).expect(429)
+      .expect(({body})=>expect(body.error.code).toBe('bank_rate_limited'));
+    await expect(syncConnection(pool,bank,secrets,userA,connectionId,true)).rejects.toMatchObject({code:'ASPSP_RATE_LIMIT_EXCEEDED'});
     const limited=(await a.get('/api/banking/connections').expect(200)).body.data.find((x:any)=>x.id===connectionId);
     expect(limited.errorCode).toBe('rate_limited');
     expect(new Date(limited.nextSyncAt).getTime()-Date.now()).toBeGreaterThan(7*3600_000);
@@ -303,7 +312,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await a.delete(`/api/banking/rules/${ruleId}`).set('Origin',origin).expect(204);
   });
 
-  it('requires historical reconciliation on an existing account, then posts only genuinely later bookings',async()=>{
+  it('requires historical reconciliation on an existing account, then posts newly seen payments',async()=>{
     const manualAccount=(await a.post('/api/accounts').send({name:'Manual history',kind:'checking',currency:'EUR',openingBalance:'100.00'}).expect(201)).body.data.id;
     const manual=(await a.post('/api/transactions').send({kind:'expense',sourceAccountId:manualAccount,amount:'10.00',currency:'EUR',occurredAt:`${today}T12:00:00.000Z`,description:'Historical grocery'}).expect(201)).body.data.id;
     const start=await a.post('/api/banking/connections').set('Origin',origin).send({country:'BG',name:'Mock ASPSP'}).expect(201);
@@ -335,8 +344,8 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     expect(statuses.find(x=>x.entry_reference==='later-booked')?.match_status).toBe('posted');
     expect(statuses.find(x=>x.entry_reference==='possible-duplicate')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:futureManual});
     expect((await a.get(`/api/transactions/${futureManual}`).expect(200)).body.data.voidedAt).toBeNull();
-    expect(statuses.find(x=>x.entry_reference==='same-day-late')?.match_status).toBe('review');
-    expect(statuses.find(x=>x.entry_reference==='later-pending')?.ledger_transaction_id).toBeNull();
+    expect(statuses.find(x=>x.entry_reference==='same-day-late')?.match_status).toBe('posted');
+    expect(statuses.find(x=>x.entry_reference==='later-pending')?.match_status).toBe('posted');
     const bookedId=statuses.find(x=>x.entry_reference==='later-booked')?.ledger_transaction_id;
     const booked=(await a.get(`/api/transactions/${bookedId}`).expect(200)).body.data;
     expect(booked).toMatchObject({categoryId:null,bankOccurredOn:afterDate,kind:'expense',amount:'6.0000',currency:'EUR'});
@@ -349,7 +358,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     expect((await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT count(*)::integer AS count FROM bank_transactions WHERE entry_reference='later-pending' AND match_status='posted'`)).rows[0].count))).toBe(1);
     expect((await a.get(`/api/transactions/${bookedId}`).expect(200)).body.data).toMatchObject({occurredAt:editedAt,bankOccurredOn:null,description:'Corrected bank note'});
     review=(await a.get('/api/banking/review').expect(200)).body.data.filter((x:any)=>x.bankAccountLinkId===historyLink);
-    expect(review.map((x:any)=>x.id)).toContain(statuses.find(x=>x.entry_reference==='same-day-late')?.id);
+    expect(review.map((x:any)=>x.id)).not.toContain(statuses.find(x=>x.entry_reference==='same-day-late')?.id);
     await withUserTransaction(pool,userA,async client=>{await client.query(`UPDATE users SET timezone='UTC' WHERE id=$1`,[userA]);});
     await a.post(`/api/banking/connections/${historyConnection}/disconnect`).set('Origin',origin).expect(204);
     await a.delete(`/api/banking/connections/${historyConnection}/data`).set('Origin',origin).expect(204);
@@ -394,9 +403,9 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
       `SELECT entry_reference,match_status,ledger_transaction_id FROM bank_transactions WHERE bank_account_link_id=$1`,[link])).rows);
     expect(rows.filter(x=>x.match_status==='ignored')).toHaveLength(450);
     expect(rows.find(x=>x.entry_reference==='cutoff-0')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:manual});
-    expect(rows.find(x=>x.entry_reference==='cutoff-new-today')).toMatchObject({match_status:'review',ledger_transaction_id:null});
+    expect(rows.find(x=>x.entry_reference==='cutoff-new-today')).toMatchObject({match_status:'posted',ledger_transaction_id:expect.any(String)});
     expect(rows.find(x=>x.entry_reference==='cutoff-future')?.match_status).toBe('posted');
-    expect(Number((await a.get(`/api/accounts/${manualAccount}`).expect(200)).body.data.currentBalance)).toBe(Number(before)+5);
+    expect(Number((await a.get(`/api/accounts/${manualAccount}`).expect(200)).body.data.currentBalance)).toBe(Number(before)+3);
     await a.post(`/api/banking/connections/${id}/disconnect`).set('Origin',origin).expect(204);
     await a.delete(`/api/banking/connections/${id}/data`).set('Origin',origin).expect(204);
     await withUserTransaction(pool,userA,client=>client.query(`UPDATE users SET timezone='UTC' WHERE id=$1`,[userA]));
@@ -421,6 +430,9 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     const inside=await manual('206','expense',eurAccount,'EUR',-2);
     await manual('207','expense',eurAccount,'EUR',-3);
     await manual('208','income',eurAccount);
+    const amortized=(await a.post('/api/transactions').send({kind:'expense',method:'amortized',sourceAccountId:eurAccount,
+      categoryId,amount:'209',currency:'EUR',occurredAt:`${today}T12:00:00Z`,description:'My planned expense',
+      merchant:'My planned title',amortizationStart:today,amortizationEnd:day(2)}).expect(201)).body.data.id;
     bank.entries.set('A-eur',[
       tx('auto-exact','debit','201','EUR','Bank title'),
       tx('auto-ambiguous','debit','202','EUR','Bank title'),
@@ -429,6 +441,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
       tx('auto-account','debit','205','EUR','Bank title'),
       tx('auto-inside','debit','206','EUR','Bank title'),
       tx('auto-outside','debit','207','EUR','Bank title'),
+      tx('auto-amortized','debit','209','EUR','Bank title'),
       tx('auto-pending','credit','208','EUR','Bank title','PDNG'),
     ]);
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
@@ -438,14 +451,17 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     const byRef=(ref:string)=>rows.find(x=>x.entry_reference===ref);
     expect(byRef('auto-exact')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:exact});
     expect(byRef('auto-inside')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:inside});
+    expect(byRef('auto-amortized')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:amortized});
     expect(byRef('auto-ambiguous')).toMatchObject({match_status:'review',ledger_transaction_id:null});
     for(const ref of ['auto-direction','auto-currency','auto-account','auto-outside'])
       expect(byRef(ref)?.match_status).toBe('posted');
     const preserved=(await a.get(`/api/transactions/${exact}`).expect(200)).body.data;
     expect(preserved).toMatchObject({categoryId,description:'My own note',merchant:'My own title',bankSynced:true});
+    expect((await a.get(`/api/transactions/${amortized}`).expect(200)).body.data)
+      .toMatchObject({categoryId,method:'amortized',description:'My planned expense',merchant:'My planned title',bankSynced:true});
     const imported=(await a.get(`/api/transactions/${byRef('auto-direction')!.ledger_transaction_id}`).expect(200)).body.data;
     expect(imported).toMatchObject({kind:'income',categoryId:null,bankSynced:true});
-    expect(byRef('auto-pending')).toMatchObject({match_status:'new',ledger_transaction_id:null});
+    expect(byRef('auto-pending')).toMatchObject({match_status:'matched_manual',ledger_transaction_id:expect.any(String)});
     bank.entries.set('A-eur',[{...tx('auto-pending','credit','208','EUR','Final bank title'),occurredOn:day(1)}]);
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
@@ -465,6 +481,39 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
       expect(row).toMatchObject({match_status:'posted'});
       expect(row.ledger_transaction_id).toBeTruthy();
     } finally {bank.pages.delete('A-eur');}
+  });
+
+  it('uses observed bank dates after empty fetches and imports delayed bookings',async()=>{
+    bank.entries.set('A-eur',[]);
+    bank.entries.set('A-bgn',[]);
+    bank.requests=[];
+    const empty=await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    expect(empty).toMatchObject({fetched:0,created:0});
+    const firstRequest=bank.requests.find(x=>x.id==='A-eur')!;
+    expect(firstRequest.options.initial).toBe(true);
+    expect(firstRequest.options.from).toBeTruthy();
+    const lateDate=new Date(Date.now()-20*86400_000).toISOString().slice(0,10);
+    expect(firstRequest.options.from!<=lateDate).toBe(true);
+    expect(bankFetchFrom(today)).toBe(new Date(Date.parse(`${today}T00:00:00Z`)-90*86400_000).toISOString().slice(0,10));
+    bank.entries.set('A-eur',[{...tx('delayed-booking','debit','915.12','EUR','Late bank feed'),occurredOn:lateDate}]);
+    const delayed=await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    expect(delayed).toMatchObject({fetched:1,newBankTransactions:1,created:1});
+    const row=await withUserTransaction(pool,userA,async client=>(await client.query(`SELECT match_status,ledger_transaction_id
+      FROM bank_transactions WHERE bank_account_link_id=$1 AND entry_reference='delayed-booking'`,[eurLink])).rows[0]);
+    expect(row).toMatchObject({match_status:'posted'});
+    expect(row.ledger_transaction_id).toBeTruthy();
+  });
+
+  it('does not advance the account cursor when staging fails',async()=>{
+    const before=await withUserTransaction(pool,userA,async client=>(await client.query<{last_synced_at:Date}>(
+      `SELECT last_synced_at FROM bank_account_links WHERE id=$1`,[eurLink])).rows[0]!.last_synced_at);
+    bank.entries.set('A-eur',[tx('failed-import','debit','not-a-number','EUR','Failed import')]);
+    await expect(syncConnection(pool,bank,secrets,userA,connectionId,true)).rejects.toMatchObject({code:'invalid_provider_amount'});
+    const after=await withUserTransaction(pool,userA,async client=>(await client.query<{last_synced_at:Date}>(
+      `SELECT last_synced_at FROM bank_account_links WHERE id=$1`,[eurLink])).rows[0]!.last_synced_at);
+    expect(after.getTime()).toBe(before.getTime());
+    bank.entries.set('A-eur',[tx('failed-import','debit','916.12','EUR','Recovered import')]);
+    expect(await syncConnection(pool,bank,secrets,userA,connectionId,true)).toMatchObject({created:1});
   });
 
   it('keeps the scheduled worker moving when one connection fails and expires old consent',async()=>{
@@ -496,7 +545,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
 
   it('expires consent and disconnects without deleting imported ledger entries',async()=>{
     bank.expired=true;
-    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    await expect(syncConnection(pool,bank,secrets,userA,connectionId,true)).rejects.toMatchObject({code:'EXPIRED_SESSION'});
     const list=await a.get('/api/banking/connections').expect(200);
     expect(list.body.data.find((x:any)=>x.id===connectionId).status).toBe('expired');
     const before=await a.get('/api/transactions?limit=100').expect(200);

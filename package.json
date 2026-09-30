@@ -24,7 +24,8 @@
     "test:client": "vitest run tests/client",
     "test:auth": "vitest run tests/auth.integration.test.ts",
     "test:finance": "vitest run tests/finance.integration.test.ts",
-    "banking:doctor": "tsx scripts/banking-doctor.ts"
+    "banking:doctor": "tsx scripts/banking-doctor.ts",
+    "banking:sync-once": "node dist/src/banking-sync-once.js"
   },
   "devDependencies": {
     "@tanstack/react-query": "^5.103.1",

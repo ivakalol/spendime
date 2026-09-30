@@ -36,19 +36,56 @@ export function effectiveSyncIntervalMinutes(
     ? configuredMinutes : DEFAULT_SYNC_INTERVAL_MINUTES;
 }
 
-interface Link { id: string; connection_id: string; provider_account_id: string; account_id: string | null; link_mode: 'new' | 'existing' | null; currency: string; last_synced_at: Date | null }
+interface Link { id: string; connection_id: string; provider_account_id: string; account_id: string | null; link_mode: 'new' | 'existing' | null; currency: string; last_synced_at: Date | null; latest_observed_on: string | null }
 
-async function stagePage(pool: pg.Pool, userId: string, link: Link, records: BankTransaction[], ordinals: Map<string, number>): Promise<void> {
-  await withUserTransaction(pool, userId, async (client) => {
+export interface BankSyncResult {
+  fetched: number;
+  booked: number;
+  pending: number;
+  newBankTransactions: number;
+  updatedBankTransactions: number;
+  duplicatesSkipped: number;
+  ignored: number;
+  review: number;
+  merged: number;
+  created: number;
+  unlinked: number;
+  accounts: number;
+}
+
+const emptySyncResult = (): BankSyncResult => ({ fetched:0,booked:0,pending:0,
+  newBankTransactions:0,updatedBankTransactions:0,duplicatesSkipped:0,ignored:0,
+  review:0,merged:0,created:0,unlinked:0,accounts:0 });
+const traceEnabled = () => process.env.NODE_ENV !== 'production' && process.env.BANKING_TRACE_TRANSACTIONS === '1';
+const trace = (stage: string, details: Record<string, unknown>) => {
+  if (traceEnabled()) console.info('Bank sync trace', { stage, ...details });
+};
+const comparableAmount = (value: string) => {
+  const [whole,fraction=''] = value.replace(/^\+/,'').split('.');
+  return `${whole?.replace(/^0+(?=\d)/,'')}.${fraction.replace(/0+$/,'')}`;
+};
+
+// Use the latest transaction date actually seen, never the wall-clock time of
+// a successful empty response. The overlap catches delayed bank bookings.
+export function bankFetchFrom(latestObservedOn: string | null, overlapDays = 90): string | undefined {
+  if (!latestObservedOn) return undefined;
+  const date = new Date(`${latestObservedOn}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  date.setUTCDate(date.getUTCDate() - overlapDays);
+  return date.toISOString().slice(0,10);
+}
+
+async function stagePage(pool: pg.Pool, userId: string, link: Link, records: BankTransaction[], ordinals: Map<string, number>, summary: BankSyncResult): Promise<string[]> {
+  return withUserTransaction(pool, userId, async (client) => {
+    const pendingSeen: string[] = [];
     await client.query(`UPDATE bank_connections SET sync_lease_until=now()+interval '5 minutes' WHERE id=$1`,[link.connection_id]);
     // Serialize page ingestion with the start-from-today action. A later page
     // or overlapping sync cannot restore deliberately excluded history.
     const cutoff = (await client.query<{ history_ignored_before:string|null }>(
       `SELECT history_ignored_before::text FROM bank_account_links WHERE id=$1 FOR UPDATE`,[link.id])).rows[0]?.history_ignored_before;
     for (const record of records) {
-      // Without an entry reference the provider cannot promise continuity from
-      // authorization to booking. Pending rows have no ledger effect anyway.
-      if (['PDNG','HOLD'].includes(record.status) && !record.entryReference) continue;
+      // Pending rows with a stable entry reference can be represented in the
+      // ledger. Without that reference they remain staged until booking.
       let parsedAmount = normalizeBankAmount(record.amount);
       if (parsedAmount === null) throw new BankingProviderError('invalid_provider_amount');
       if (parsedAmount === '0') {
@@ -57,7 +94,7 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
           [link.id, `ref:${hash(record.entryReference)}`])).rows[0] : undefined;
         // New zero-value authorizations have no financial effect. A cancellation
         // of an existing movement must still reverse that movement's ledger entry.
-        if (!existing) continue;
+        if (!existing) { summary.ignored++; trace('zero_amount',{linkId:link.id,status:record.status}); continue; }
         if (!['CNCL','RJCT'].includes(record.status)) throw new BankingProviderError('invalid_provider_zero_adjustment');
         parsedAmount = existing.amount;
       }
@@ -65,6 +102,10 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
       const ordinal = (ordinals.get(signature) ?? 0) + 1;
       ordinals.set(signature, ordinal);
       const key = record.entryReference ? `ref:${hash(record.entryReference)}` : `fp:${signature}:${ordinal}`;
+      const before = (await client.query<{ status:string; direction:string; amount:string; currency:string;
+        occurred_on:string; merchant:string|null; description:string|null; match_status:string; ledger_transaction_id:string|null }>(`
+        SELECT status,direction,amount,currency,occurred_on::text,merchant,description,match_status,ledger_transaction_id
+        FROM bank_transactions WHERE bank_account_link_id=$1 AND identity_key=$2 FOR UPDATE`,[link.id,key])).rows[0];
       const result = await client.query<{ id: string; ledger_transaction_id: string | null; match_status: string }>(`
         INSERT INTO bank_transactions(user_id,bank_account_link_id,identity_key,entry_reference,status,direction,amount,currency,occurred_on,merchant,description,counterparty_hash,booking_date,transaction_date,value_date,provider_transaction_id)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
@@ -95,8 +136,20 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
         [userId,link.id,key,record.entryReference,record.status,record.direction,parsedAmount,record.currency,record.occurredOn,record.merchant,record.description,record.counterpartyHash,
           record.bookingDate ?? null,record.transactionDate ?? null,record.valueDate ?? null,record.providerTransactionId ?? null]);
       const staged = result.rows[0]!;
-      if (cutoff && record.status==='BOOK' && record.occurredOn<cutoff && !staged.ledger_transaction_id) {
+      if (['PDNG','HOLD'].includes(record.status) && record.entryReference) pendingSeen.push(staged.id);
+      if (!before) summary.newBankTransactions++;
+      else if (before.status !== record.status || before.direction !== record.direction ||
+        comparableAmount(before.amount) !== comparableAmount(parsedAmount) || before.currency !== record.currency ||
+        before.occurred_on !== record.occurredOn || before.merchant !== record.merchant ||
+        before.description !== record.description) summary.updatedBankTransactions++;
+      else summary.duplicatesSkipped++;
+      trace('staged',{linkId:link.id,bankTransactionId:staged.id,identityKey:key,
+        disposition:before?'existing':'new',status:record.status,matchStatus:staged.match_status,
+        ledgerTransactionId:staged.ledger_transaction_id});
+      if (cutoff && ['BOOK','PDNG','HOLD'].includes(record.status) &&
+        record.occurredOn<cutoff && !staged.ledger_transaction_id) {
         await client.query(`UPDATE bank_transactions SET match_status='ignored' WHERE id=$1`,[staged.id]);
+        summary.ignored++;
       }
       if (['CNCL','RJCT'].includes(record.status) && staged.ledger_transaction_id) {
         const pair = await client.query(`SELECT id FROM bank_transfer_pairs WHERE debit_bank_transaction_id=$1 OR credit_bank_transaction_id=$1`, [staged.id]);
@@ -115,17 +168,19 @@ async function stagePage(pool: pg.Pool, userId: string, link: Link, records: Ban
         [link.id,record.direction,parsedAmount,record.currency,record.occurredOn,record.merchant]);
       }
     }
+    return pendingSeen;
   });
 }
 
-export async function postStagedTransaction(client: pg.PoolClient, userId: string, bankTransactionId: string): Promise<void> {
+export async function postStagedTransaction(client: pg.PoolClient, userId: string, bankTransactionId: string): Promise<boolean> {
   const row = (await client.query<any>(`SELECT bt.*,l.account_id,l.link_mode,l.currency AS account_currency
     FROM bank_transactions bt JOIN bank_account_links l ON l.id=bt.bank_account_link_id
     WHERE bt.id=$1 FOR UPDATE OF bt`, [bankTransactionId])).rows[0];
-  if (!row || row.match_status !== 'new' || row.status !== 'BOOK' || !row.account_id) return;
+  if (!row || row.match_status !== 'new' ||
+    (row.status !== 'BOOK' && !(['PDNG','HOLD'].includes(row.status) && row.entry_reference)) || !row.account_id) return false;
   if (row.currency !== row.account_currency) {
     await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`, [row.id]);
-    return;
+    return false;
   }
   const kind = row.direction === 'debit' ? 'expense' : 'income';
   let refundId: string | null = null;
@@ -154,6 +209,8 @@ export async function postStagedTransaction(client: pg.PoolClient, userId: strin
   if (refundId) await client.query(`INSERT INTO bank_refund_links(refund_transaction_id,user_id,original_transaction_id) VALUES($1,$2,$3)`, [ledgerId,userId,refundId]);
   await client.query(`UPDATE bank_transactions SET ledger_transaction_id=$2,match_status='posted',classification_source=$3 WHERE id=$1`,
     [row.id,ledgerId,refundId?'refund':'uncategorized']);
+  trace('created',{bankTransactionId:row.id,ledgerTransactionId:ledgerId,accountId:row.account_id});
+  return true;
 }
 
 export const MANUAL_MATCH_DATE_TOLERANCE_DAYS = 2;
@@ -164,7 +221,7 @@ export async function manualMatchCandidates(client: pg.PoolClient, bankTransacti
     JOIN users u ON u.id=bt.user_id
     JOIN transactions t ON t.user_id=bt.user_id AND t.amount=bt.amount AND t.currency=bt.currency
       AND t.kind=CASE bt.direction WHEN 'debit' THEN 'expense'::transaction_kind ELSE 'income'::transaction_kind END
-      AND t.method='standard' AND t.voided_at IS NULL
+      AND t.method IN ('standard','amortized') AND t.voided_at IS NULL
       AND (t.occurred_at AT TIME ZONE u.timezone)::date BETWEEN
         bt.occurred_on-$2::integer AND bt.occurred_on+$2::integer
       AND ((bt.direction='debit' AND t.source_account_id=l.account_id AND t.destination_account_id IS NULL)
@@ -187,7 +244,8 @@ export async function matchManualTransaction(client: pg.PoolClient, bankTransact
 }
 
 export async function syncConnection(pool: pg.Pool, provider: BankingProvider, secrets: BankingSecrets, userId: string,
-  connectionId: string, force = false, sandboxIntervalMinutes = DEFAULT_SYNC_INTERVAL_MINUTES): Promise<boolean> {
+  connectionId: string, force = false, sandboxIntervalMinutes = DEFAULT_SYNC_INTERVAL_MINUTES): Promise<BankSyncResult | false> {
+  const summary = emptySyncResult();
   const lockClient = await pool.connect();
   let locked = false;
   try {
@@ -215,9 +273,12 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
     if (await provider.sessionStatus(secrets.decrypt(connection.provider_session_id)) !== 'active') throw new BankingProviderError('EXPIRED_SESSION');
     stage = 'load_accounts';
     const links = await withUserTransaction(pool,userId,async (client) =>
-      (await client.query<Link>(`SELECT id,connection_id,provider_account_id,account_id,link_mode,currency,last_synced_at
+      (await client.query<Link>(`SELECT id,connection_id,provider_account_id,account_id,link_mode,currency,last_synced_at,
+        (SELECT max(occurred_on)::text FROM bank_transactions
+          WHERE bank_account_link_id=bank_account_links.id AND status='BOOK' AND occurred_on<=current_date) AS latest_observed_on
       FROM bank_account_links WHERE connection_id=$1 ORDER BY id`, [connectionId])).rows);
     for (const link of links) {
+      summary.accounts++;
       stage = 'balance';
       const balance = await provider.balance(link.provider_account_id);
       if (balance && balance.currency === link.currency && signedBalance(balance.amount) !== null) {
@@ -228,15 +289,25 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
         });
       }
       const ordinals = new Map<string,number>();
+      const pendingSeen: string[] = [];
+      const from = bankFetchFrom(link.latest_observed_on);
       let next: string | null = null;
       for (let page=0;page<500;page++) {
         stage = 'transactions';
+        trace('request',{linkId:link.id,providerAccountId:link.provider_account_id,
+          from:from??null,strategy:'longest',page:page+1,continuationKeyPresent:Boolean(next)});
         const data: import('./provider.js').BankTransactionPage = await provider.transactions(link.provider_account_id, {
-          ...(link.last_synced_at ? { from: new Date(link.last_synced_at.getTime()-7*86400_000).toISOString().slice(0,10) } : {}),
-          ...(next ? { next } : {}), initial: !link.last_synced_at,
+          ...(from ? { from } : {}), ...(next ? { next } : {}), initial: true,
         });
+        summary.fetched += data.transactions.length;
+        summary.booked += data.transactions.filter(record=>record.status==='BOOK').length;
+        summary.pending += data.transactions.filter(record=>['PDNG','HOLD'].includes(record.status)).length;
+        trace('page',{linkId:link.id,page:page+1,fetched:data.transactions.length,
+          booked:data.transactions.filter(record=>record.status==='BOOK').length,
+          pending:data.transactions.filter(record=>['PDNG','HOLD'].includes(record.status)).length,
+          continuationKeyPresent:Boolean(data.next)});
         stage = 'save_transactions';
-        await stagePage(pool,userId,link,data.transactions,ordinals);
+        pendingSeen.push(...await stagePage(pool,userId,link,data.transactions,ordinals,summary));
         next = data.next;
         if (!next) break;
         if (page === 499) throw new BankingProviderError('pagination_limit');
@@ -247,24 +318,37 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
           'SELECT account_id,link_mode,automatic_post_after FROM bank_account_links WHERE id=$1 FOR UPDATE',[link.id])).rows[0];
         if (currentLink?.account_id) {
           const candidates = await client.query<{ id: string; eligible_for_automatic_post:boolean }>(`SELECT bt.id,
-            (bt.first_seen_at > l.automatic_post_after AND
-             bt.occurred_on > (l.automatic_post_after AT TIME ZONE u.timezone)::date) AS eligible_for_automatic_post
-            FROM bank_account_links l JOIN users u ON u.id=l.user_id
+            (bt.first_seen_at > l.automatic_post_after) AS eligible_for_automatic_post
+            FROM bank_account_links l
             JOIN bank_transactions bt ON bt.bank_account_link_id=l.id
-            WHERE bt.bank_account_link_id=$1 AND bt.status='BOOK' AND bt.match_status='new'
-            ORDER BY bt.occurred_on,CASE bt.direction WHEN 'debit' THEN 0 ELSE 1 END,bt.id`, [link.id]);
+            WHERE bt.bank_account_link_id=$1 AND (bt.status='BOOK' OR
+              (bt.status IN ('PDNG','HOLD') AND bt.id=ANY($2::uuid[]))) AND bt.match_status='new'
+            ORDER BY bt.occurred_on,CASE bt.direction WHEN 'debit' THEN 0 ELSE 1 END,bt.id`, [link.id,pendingSeen]);
           for (const candidate of candidates.rows) {
             if ((provider.environment === 'production' || currentLink.link_mode === 'existing') &&
-                  !candidate.eligible_for_automatic_post)
+                  !candidate.eligible_for_automatic_post) {
               await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[candidate.id]);
-            else {
+              summary.review++;
+              trace('review',{bankTransactionId:candidate.id,reason:'initial_reconciliation_or_booking_date'});
+            } else {
               const manual = await manualMatchCandidates(client,candidate.id);
-              if (manual.length === 1) await matchManualTransaction(client,candidate.id,manual[0]!);
-              else if (manual.length > 1)
+              trace('manual_candidates',{bankTransactionId:candidate.id,candidateIds:manual});
+              if (manual.length === 1) {
+                if (await matchManualTransaction(client,candidate.id,manual[0]!)) summary.merged++;
+              } else if (manual.length > 1) {
                 await client.query(`UPDATE bank_transactions SET match_status='review' WHERE id=$1`,[candidate.id]);
-              else await postStagedTransaction(client,userId,candidate.id);
+                summary.review++;
+                trace('review',{bankTransactionId:candidate.id,reason:'ambiguous_manual_match',candidateIds:manual});
+              } else if (await postStagedTransaction(client,userId,candidate.id)) summary.created++;
+              else {
+                summary.review++;
+                trace('review',{bankTransactionId:candidate.id,reason:'currency_mismatch_or_not_postable'});
+              }
             }
           }
+        } else {
+          summary.unlinked += (await client.query<{ count:number }>(`SELECT count(*)::integer AS count
+            FROM bank_transactions WHERE bank_account_link_id=$1 AND status='BOOK' AND match_status='new'`,[link.id])).rows[0]?.count ?? 0;
         }
         await client.query(`UPDATE bank_account_links SET last_synced_at=now() WHERE id=$1`,[link.id]);
       });
@@ -276,6 +360,8 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
         [connectionId,effectiveSyncIntervalMinutes(provider,
           { environment:connection.environment,institutionName:connection.institution_name },sandboxIntervalMinutes)]);
     });
+    console.info('Bank sync result',JSON.stringify({connectionId,...summary}));
+    trace('complete',{connectionId,...summary});
   } catch (error) {
     // Log only fixed diagnostic labels and HTTP/SQL status codes. Never include
     // provider payloads, request URLs, account identifiers, tokens, or SQL text.
@@ -308,9 +394,9 @@ export async function syncConnection(pool: pg.Pool, provider: BankingProvider, s
         last_sync_failed_at=now(),sync_lease_until=NULL WHERE id=$1`, [connectionId,expired?'expired':'active',expired?'consent_expired':limited?'rate_limited':'sync_failed',
         expired?null:new Date(Date.now()+Math.max((limited?6:1)*3600_000,retryAfterMs))]);
     });
-    if (!limited && !expired) throw error;
+    throw error;
   }
-  return true;
+  return summary;
   } finally {
     if (locked) {
       try { await lockClient.query('SELECT pg_advisory_unlock(hashtextextended($1::text,0))',[connectionId]); }

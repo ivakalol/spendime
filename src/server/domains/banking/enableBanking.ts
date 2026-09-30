@@ -13,6 +13,7 @@ const AUTHORIZATION_ORIGINS = new Set([
 ]);
 const b64 = (value: string) => Buffer.from(value).toString('base64url');
 const trim = (value: unknown, max: number) => typeof value === 'string' ? value.trim().slice(0, max) || null : null;
+const traceTransactions = () => process.env.NODE_ENV !== 'production' && process.env.BANKING_TRACE_TRANSACTIONS === '1';
 
 export function retryAfterSeconds(value: string | null, now = Date.now()): number | undefined {
   if (!value) return undefined;
@@ -74,6 +75,17 @@ export class EnableBankingProvider implements BankingProvider {
         headers: { Accept: 'application/json', Authorization: `Bearer ${this.jwt()}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
+      if (path.includes('/transactions?')) {
+        const url=new URL(path,API);
+        console.info('Enable Banking transaction HTTP',{
+          status:response.status,
+          strategy:url.searchParams.get('strategy'),dateFrom:url.searchParams.get('date_from'),
+          continuationKeyPresent:url.searchParams.has('continuation_key'),
+        });
+        if (traceTransactions()) console.info('Enable Banking transaction account',{
+          accountId:url.pathname.split('/')[2],
+        });
+      }
       if (!response.ok) {
         const payload = await response.json().catch(() => ({})) as Json;
         const code = typeof payload.error === 'string' ? payload.error : typeof payload.code === 'string' ? payload.code : `http_${response.status}`;
@@ -138,9 +150,26 @@ export class EnableBankingProvider implements BankingProvider {
     // Continuation requests must retain the first page's query parameters.
     // Dropping strategy/date_from changes the provider's pagination context.
     if (options.initial) params.set('strategy', 'longest');
-    else if (options.from) params.set('date_from', options.from);
+    if (options.from) params.set('date_from', options.from);
     if (options.next) params.set('continuation_key', options.next);
     const data = await this.request(`/accounts/${encodeURIComponent(accountId)}/transactions?${params}`);
+    console.info('Enable Banking transaction page totals',{
+      fetched:Array.isArray(data.transactions)?data.transactions.length:null,
+      booked:Array.isArray(data.transactions)?data.transactions.filter((x:Json)=>x?.status==='BOOK').length:null,
+      pending:Array.isArray(data.transactions)?data.transactions.filter((x:Json)=>['PDNG','HOLD'].includes(x?.status)).length:null,
+      continuationKeyPresent:Boolean(data.continuation_key),
+    });
+    if (traceTransactions()) console.info('Enable Banking transaction page',{
+      accountId,requestedDateFrom:options.from??null,continuationKeyPresent:Boolean(options.next),
+      count:Array.isArray(data.transactions)?data.transactions.length:null,
+      nextPage:Boolean(data.continuation_key),
+      records:Array.isArray(data.transactions)?data.transactions.map((x:Json)=>({
+        transactionId:x.transaction_id??null,entryReference:x.entry_reference??null,
+        status:x.status??null,bookingDate:x.booking_date??null,
+        transactionDate:x.transaction_date??null,valueDate:x.value_date??null,
+        amount:x.transaction_amount?.amount??null,currency:x.transaction_amount?.currency??null,
+      })):[],
+    });
     if (!Array.isArray(data.transactions)) throw new BankingProviderError('invalid_provider_response');
     const transactions: BankTransaction[] = data.transactions.map((x: Json) => {
       const party = x.credit_debit_indicator === 'DBIT' ? x.creditor : x.debtor;

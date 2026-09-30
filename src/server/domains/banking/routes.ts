@@ -299,10 +299,11 @@ export function createBankingRouter(pool: pg.Pool, config: AppConfig, provider?:
       AND (next_sync_at IS NULL OR next_sync_at<=now())`,[id])).rows[0]);
     if (!due) throw new ApiError(429,'sync_not_due','This bank can be synchronized again at its next scheduled time.');
     try {
-      if (!await syncConnection(pool,bank,secrets!,userId,id,false,config.sandboxSyncIntervalMinutes))
+      const result=await syncConnection(pool,bank,secrets!,userId,id,false,config.sandboxSyncIntervalMinutes);
+      if (!result)
         throw new ApiError(409,'sync_in_progress','This bank is already synchronizing.');
+      response.json({ data: result });
     } catch (error) { providerError(error); }
-    response.json({ data: { requested: true } });
   });
 
   router.get('/review', async (request,response) => {
