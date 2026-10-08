@@ -1,6 +1,6 @@
 import { QuickAdd } from '../features/QuickAdd';
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Pencil, ReceiptText, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, ChevronDown, Pencil, ReceiptText, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { useEffect, useId, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, jsonBody } from '../api/client';
 import { keys, useAccounts, useCategories, useMe, useTransactions, useUpdateTransaction, useVoidTransaction } from '../api/queries';
@@ -13,6 +13,8 @@ import { useLanguage } from '../i18n';
 export default function TransactionsPage() {
   const {t}=useLanguage();
   const [adding, setAdding] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersId = useId();
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [kind, setKind] = useState(''); const [account, setAccount] = useState(''); const [category, setCategory] = useState('');
@@ -26,21 +28,23 @@ export default function TransactionsPage() {
     ...(to ? { to: zonedInputToIso(`${addCalendarDays(to, 1)}T00:00`, timezone) } : {}),
   }), [page, kind, account, category, from, to, sort, timezone]);
   const query = useTransactions(params);
+  const filterCount = [kind, account, category, from, to].filter(Boolean).length;
+  const resetFilters = () => { setKind(''); setAccount(''); setCategory(''); setFrom(''); setTo(''); setSort('occurredAt'); setPage(0); };
   const filter = (setter: (value: string) => void) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { setter(event.target.value); setPage(0); };
   return <>
     <PageHeader eyebrow="Ledger" title="Transactions" description="Your money in and out. Transfers between your own accounts do not count as spending." action={<Button onClick={()=>setAdding(true)}>Add transaction</Button>} />
-    <Card className="mb-3 grid min-w-0 grid-cols-2 gap-2 bg-surface/80 sm:mb-5 sm:gap-3 xl:grid-cols-3">
+    <Card className="mb-4 bg-surface/80 sm:mb-5"><div className="flex items-center justify-between gap-2"><button type="button" aria-expanded={filtersOpen} aria-controls={filtersId} onClick={()=>setFiltersOpen(value=>!value)} className="flex min-h-11 flex-1 items-center gap-2 rounded-xl text-sm font-semibold sm:hidden"><SlidersHorizontal className="size-4" />{t("Filters")}{filterCount>0&&<Badge>{filterCount}</Badge>}<ChevronDown className={`ml-auto size-4 transition-transform ${filtersOpen?"rotate-180":""}`} /></button>{(filterCount>0||sort!=="occurredAt")&&<Button variant="ghost" onClick={resetFilters}>{t("Clear filters")}</Button>}</div><div id={filtersId} className={`transaction-filter-grid grid-cols-2 gap-3 xl:grid-cols-3 ${filtersOpen?"mt-3 grid sm:mt-0":"hidden sm:grid"}`}>
       <Field label="Type"><Select aria-label="Filter by type" value={kind} onChange={filter(setKind)}><option value="">All transaction types</option><option value="expense">Expenses</option><option value="refund">Refunds</option><option value="income">Income</option><option value="transfer">Transfers</option><option value="asset_purchase">Asset purchases</option><option value="liability_payment">Liability payments</option></Select></Field>
       <Field label="Account"><Select aria-label="Filter by account" value={account} onChange={filter(setAccount)}><option value="">All accounts</option>{accounts.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
       <Field label="Category"><Select aria-label="Filter by category" value={category} onChange={filter(setCategory)}><option value="">All categories</option>{categories.data?.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
       <Field label="From date"><Input className="min-w-0 max-w-full" type="date" max={to || undefined} value={from} onChange={filter(setFrom)} /></Field>
       <Field label="Through date"><Input className="min-w-0 max-w-full" type="date" min={from || undefined} value={to} onChange={filter(setTo)} /></Field>
       <Field label="Sort by"><Select aria-label="Sort transactions" value={sort} onChange={filter(setSort)}><option value="occurredAt">Newest occurrence</option><option value="createdAt">Recently added</option><option value="amount">Largest amount</option></Select></Field>
-    </Card>
+    </div></Card>
     {me.data?.bankingEnabled && <BankTransferPairing />}
     {query.isPending ? <LoadingState /> : query.isError ? <ErrorState error={query.error} retry={() => query.refetch()} /> : query.data.data.length === 0 ? <EmptyState icon={<ReceiptText />} title="No transactions yet" description="Record an expense or income with Add transaction. Try clearing filters if you expected to see existing entries." /> : <>
       <div className="grid gap-2 sm:gap-2.5">{query.data.data.map((transaction) => <TransactionRow key={transaction.id} item={transaction} timezone={timezone} accounts={accounts.data ?? []} categories={categories.data ?? []} onEdit={() => setEditing(transaction)} onVoid={() => { if (confirm(t('Delete and fully reverse this transaction? Its audit record will be preserved.'))) voidTx.mutate(transaction.id); }} />)}</div>
-      <div className="mt-4 flex items-center justify-between"><Button variant="secondary" disabled={page === 0} onClick={() => setPage((value) => value - 1)}>Previous</Button><span className="text-xs text-muted">{t('{count} total', {count: query.data.meta.total})}</span><Button variant="secondary" disabled={(page + 1) * 25 >= query.data.meta.total} onClick={() => setPage((value) => value + 1)}>Next</Button></div>
+      <div className="mt-4 flex items-center justify-between"><Button variant="secondary" disabled={page === 0 || query.isPlaceholderData} onClick={() => setPage((value) => value - 1)}>Previous</Button><span className="text-xs text-muted">{t('{count} total', {count: query.data.meta.total})}</span><Button variant="secondary" disabled={query.isPlaceholderData || (page + 1) * 25 >= query.data.meta.total} onClick={() => setPage((value) => value + 1)}>Next</Button></div>
     </>}
     {adding && <QuickAdd open onClose={()=>setAdding(false)}/>}
     <FormError error={voidTx.error}/>
@@ -64,7 +68,7 @@ function BankTransferPairing() {
   const candidates=useQuery({queryKey:['banking','transfers'],queryFn:async()=>(await apiRequest<ApiEnvelope<PairCandidate[]>>('/api/banking/transfers/candidates')).data,retry:false});
   const pair=useMutation({mutationFn:()=>apiRequest('/api/banking/transfers/pair',{method:'POST',...jsonBody({debitId:debit,creditId:credit})}),onSuccess:async()=>{setDebit('');setCredit('');await Promise.all([qc.invalidateQueries({queryKey:['banking']}),qc.invalidateQueries({queryKey:keys.transactions}),qc.invalidateQueries({queryKey:keys.accounts}),qc.invalidateQueries({queryKey:keys.dashboard})]);}});
   if(candidates.isError||!candidates.data?.length) return null;
-  return <Card className="mb-5"><h2 className="flex items-center gap-2 font-bold"><ArrowRightLeft className="size-5"/>Pair your own transfers</h2><p className="mt-1 text-sm text-muted">Choose opposite, unedited booked movements between your own accounts. Their original amounts and currencies remain intact.</p><div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3"><Field label="Money sent"><Select value={debit} onChange={event=>setDebit(event.target.value)}><option value="">Choose debit</option>{candidates.data.filter(item=>item.direction==='debit').map(item=><option key={item.id} value={item.id}>{item.occurredOn} · {item.accountName} · {formatMoney(item.amount,item.currency)}{item.merchant?` · ${item.merchant}`:''}</option>)}</Select></Field><Field label="Money received"><Select value={credit} onChange={event=>setCredit(event.target.value)}><option value="">Choose credit</option>{candidates.data.filter(item=>item.direction==='credit').map(item=><option key={item.id} value={item.id}>{item.occurredOn} · {item.accountName} · {formatMoney(item.amount,item.currency)}{item.merchant?` · ${item.merchant}`:''}</option>)}</Select></Field></div><Button className="mt-3" disabled={!debit||!credit||pair.isPending} onClick={()=>pair.mutate()}>Pair transfer</Button><FormError error={pair.error}/></Card>;
+  return <Card className="mb-5"><h2 className="flex items-center gap-2 font-bold"><ArrowRightLeft className="size-5"/>Pair your own transfers</h2><p className="mt-1 text-sm text-muted">Choose opposite, unedited booked movements between your own accounts. Their original amounts and currencies remain intact.</p><div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Money sent"><Select value={debit} onChange={event=>setDebit(event.target.value)}><option value="">Choose debit</option>{candidates.data.filter(item=>item.direction==='debit').map(item=><option key={item.id} value={item.id}>{item.occurredOn} · {item.accountName} · {formatMoney(item.amount,item.currency)}{item.merchant?` · ${item.merchant}`:''}</option>)}</Select></Field><Field label="Money received"><Select value={credit} onChange={event=>setCredit(event.target.value)}><option value="">Choose credit</option>{candidates.data.filter(item=>item.direction==='credit').map(item=><option key={item.id} value={item.id}>{item.occurredOn} · {item.accountName} · {formatMoney(item.amount,item.currency)}{item.merchant?` · ${item.merchant}`:''}</option>)}</Select></Field></div><Button className="mt-3" disabled={!debit||!credit||pair.isPending} onClick={()=>pair.mutate()}>Pair transfer</Button><FormError error={pair.error}/></Card>;
 }
 
 function TransactionDialog({ transaction, accounts, categories, timezone, onClose }: { transaction: Transaction | null; accounts: Account[]; categories: Category[]; timezone: string; onClose: () => void }) {

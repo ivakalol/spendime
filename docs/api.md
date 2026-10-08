@@ -242,7 +242,9 @@ Calendar semantics:
 - starts are inclusive and ends are exclusive;
 - daily is one local calendar day;
 - weekly starts Monday according to PostgreSQL ISO week behavior;
-- monthly starts on the first local day of the month;
+- monthly starts on the first local day of the month by default. With
+  `customMonthEnabled`, it uses the cycle containing the anchor date and the
+  profile's `monthStartDay`. The end is the next cycle's start, exclusive;
 - 6-month includes the anchor month and the five preceding months;
 - annual is the local calendar year;
 - custom accepts an inclusive local `from` and `to` date, including full-history ranges;
@@ -267,6 +269,15 @@ cash income. Asset purchases are not consumption. All aggregation is performed
 in PostgreSQL; the frontend receives compact series rather than full history.
 
 ## RLS and data integrity
+
+`PATCH /api/auth/preferences` accepts optional `baseCurrency`, `timezone`,
+`completeOnboarding: true`, `customMonthEnabled: boolean`, and `monthStartDay:
+integer` (1–31). Preferences belong to the authenticated user and are returned
+by registration, login and `/api/auth/me`. Disabling custom months retains the
+chosen day for later use. In short months days 29–31 use the final calendar day.
+`monthly` and `last-month` compare full adjacent budget cycles; `this-month`
+compares elapsed calendar days, capped at the previous cycle's end. Other
+timeframes keep their existing semantics. All money aggregation remains in SQL.
 
 Every handler runs through `withUserTransaction`, which parameterizes the
 authenticated session user in transaction-local `app.current_user_id`. RLS and

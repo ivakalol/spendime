@@ -6,7 +6,7 @@ import { apiRequest } from '../api/client';
 import { keys, useMe } from '../api/queries';
 import { QuickAdd } from '../features/QuickAdd';
 import { useLanguage } from '../i18n';
-import { Button, Modal } from './ui';
+import { Button, FormError, Modal } from './ui';
 
 const primary = [{ to: '/', label: 'Home', icon: LayoutDashboard, end: true }, { to: '/transactions', label: 'Transactions', icon: ReceiptText }, { to: '/accounts', label: 'Accounts', icon: WalletCards }];
 const secondary = [{ to: '/assets', label: 'Assets', icon: BarChart3 }, { to: '/banking', label: 'Banking', icon: Landmark }, { to: '/liabilities', label: 'Debts & loans', icon: Landmark }, { to: '/recurring', label: 'Regular payments', icon: CalendarClock }, { to: '/categories', label: 'Categories', icon: Shapes }, { to: '/settings', label: 'Settings', icon: Settings }];
@@ -25,8 +25,11 @@ export function AppShell() {
   const queryClient = useQueryClient();
   const [quick, setQuick] = useState(false);
   const [more, setMore] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const { t } = useLanguage();
   const logout = useMutation({ mutationFn: () => apiRequest('/api/auth/logout', { method: 'POST' }), onSuccess: () => { queryClient.clear(); queryClient.setQueryData(keys.me, null); navigate('/login', { replace: true }); } });
+  const requestLogout = () => { logout.reset(); setMore(false); setConfirmLogout(true); };
+  const closeLogout = () => { if (!logout.isPending) setConfirmLogout(false); };
 
   const visibleSecondary = secondary.filter((item) => item.to !== '/banking' || me.data?.bankingAccess);
   return <div className="min-h-dvh lg:grid lg:grid-cols-[268px_1fr]">
@@ -34,7 +37,7 @@ export function AppShell() {
       <div aria-hidden="true" className="pointer-events-none absolute -right-28 -top-20 size-72 rounded-full border border-white/[.06] bg-white/[.025]" />
       <div className="relative mb-8 flex items-center gap-3 px-2 text-lg font-bold tracking-tight text-white"><span className="grid size-11 place-items-center rounded-2xl bg-white/10 shadow-inner ring-1 ring-white/10"><CircleDollarSign /></span>Spendime</div>
       <Button variant="secondary" className="mb-4 bg-white/10 text-white hover:bg-white/20" onClick={()=>setQuick(true)}><Plus className="size-4"/>Add transaction</Button><nav className="relative grid gap-1" aria-label="Primary navigation"><p className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white/70">Everyday money</p>{primary.map((item) => <NavItem key={item.to} item={item} />)}<p className="mt-5 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-white/70">Organize & plan</p>{visibleSecondary.map((item) => <NavItem key={item.to} item={item} />)}</nav>
-      <div className="relative mt-auto rounded-2xl border border-white/[.08] bg-white/[.06] p-3.5 text-white shadow-inner"><p className="truncate text-sm font-semibold">{me.data?.displayName}</p><p className="mt-0.5 truncate text-xs text-white/70">{me.data?.email}</p><button onClick={() => logout.mutate()} disabled={logout.isPending} className="control-press mt-3 flex min-h-10 w-full items-center gap-2 rounded-xl px-2 text-xs font-semibold text-white/60 outline-none hover:bg-white/[.07] hover:text-white focus-visible:ring-2 focus-visible:ring-accent active:scale-[.98] disabled:opacity-50"><LogOut className="size-4" />{logout.isPending ? t('Signing out…') : t('Sign out')}</button></div>
+      <div className="relative mt-auto rounded-2xl border border-white/[.08] bg-white/[.06] p-3.5 text-white shadow-inner"><p className="truncate text-sm font-semibold">{me.data?.displayName}</p><p className="mt-0.5 truncate text-xs text-white/70">{me.data?.email}</p><Button variant="danger" onClick={requestLogout} className="logout-button mt-3 w-full"><LogOut className="size-4" />Sign out</Button></div>
     </aside>
     <a href="#main-content" className="skip-link">Skip to content</a>
     <main id="main-content" tabIndex={-1} className="app-main min-w-0 lg:col-start-2"><div className="animate-enter mx-auto max-w-[1380px] px-4 safe-top sm:px-6 lg:px-9 lg:pt-8 xl:px-12"><Outlet /></div></main>
@@ -42,14 +45,17 @@ export function AppShell() {
       {primary.slice(0, 2).map((item) => <MobileItem key={item.to} item={item} />)}
       <button onClick={() => setQuick(true)} className="control-press mx-auto -mt-5 grid size-[3.15rem] place-items-center rounded-full bg-accent text-white shadow-[0_10px_24px_rgba(208,111,75,.38)] ring-[5px] ring-canvas outline-none hover:bg-accent/90 focus-visible:ring-accent/30 active:scale-95" aria-label={t('Quick add')}><Plus className="size-5" /></button>
       <MobileItem item={primary[2]!} />
-      <button onClick={() => setMore(true)} className="control-press flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-semibold text-muted outline-none hover:bg-brand/[.05] focus-visible:ring-2 focus-visible:ring-accent active:scale-95"><Menu className="size-[1.15rem]" />{t('More')}</button>
+      <button onClick={() => setMore(true)} aria-haspopup="dialog" aria-expanded={more} className={`control-press flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold outline-none hover:bg-brand/[.05] focus-visible:ring-2 focus-visible:ring-accent active:scale-95 ${visibleSecondary.some(item=>pathname.startsWith(item.to)) ? 'bg-brand/[.055] text-accent' : 'text-muted'}`}><Menu className="size-[1.15rem]" />{t('More')}</button>
     </nav>
-    <Modal open={more} onClose={() => setMore(false)} title={t('More')} description={t('Accounts, planning, and preferences.')}><nav className="grid gap-1.5" aria-label="More navigation">{visibleSecondary.map((item) => <NavItem key={item.to} item={item} light onClick={() => setMore(false)} />)}</nav><Button variant="secondary" className="mt-4 w-full" disabled={logout.isPending} onClick={() => logout.mutate()}><LogOut className="size-4" />{logout.isPending ? t('Signing out…') : t('Sign out')}</Button></Modal>
+    <Modal open={more} onClose={() => setMore(false)} title={t('More')} description={t('Accounts, planning, and preferences.')}><nav className="grid gap-1.5" aria-label="More navigation">{visibleSecondary.map((item) => <NavItem key={item.to} item={item} light onClick={() => setMore(false)} />)}</nav><div className="mt-4 border-t border-brand/10 pt-4"><p className="truncate text-sm font-semibold">{me.data?.displayName}</p><p className="mt-1 truncate text-xs text-muted">{me.data?.email}</p><Button variant="danger" className="logout-button mt-3 w-full" onClick={requestLogout}><LogOut className="size-4" />Sign out</Button></div></Modal>
+    <Modal open={confirmLogout} onClose={closeLogout} closeDisabled={logout.isPending} title="Sign out of Spendime?" description="You’ll need to sign in again to access your finances.">
+      <div className="grid gap-4"><FormError error={logout.error} /><div className="modal-actions"><Button variant="secondary" className="flex-1" disabled={logout.isPending} onClick={closeLogout}>Stay signed in</Button><Button variant="danger" className="logout-button flex-1" loading={logout.isPending} onClick={() => { if (!logout.isPending) logout.mutate(); }}><LogOut className="size-4" />Confirm sign out</Button></div></div>
+    </Modal>
     {quick && <QuickAdd open onClose={() => setQuick(false)} />}
   </div>;
 }
 
 function MobileItem({ item }: { item: (typeof primary)[number] }) {
   const { t } = useLanguage();
-  return <NavLink to={item.to} end={'end' in item ? item.end : undefined} className={({ isActive }) => `control-press relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent active:scale-95 ${isActive ? 'bg-brand/[.055] text-accent' : 'text-muted hover:bg-brand/[.04] hover:text-ink'}`}><item.icon className="size-[1.15rem]" /><span>{t(item.label)}</span></NavLink>;
+  return <NavLink to={item.to} end={'end' in item ? item.end : undefined} className={({ isActive }) => `control-press relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent active:scale-95 ${isActive ? 'bg-brand/[.055] text-accent' : 'text-muted hover:bg-brand/[.04] hover:text-ink'}`}><item.icon className="size-[1.15rem]" /><span>{t(item.label)}</span></NavLink>;
 }

@@ -60,12 +60,48 @@ describe('product preferences and currency-separated analytics',()=>{
     await a.patch(`/api/accounts/${eur}`).send({currency:'USD'}).expect(409);
   });
   it('validates custom ranges and uses inclusive calendar periods with equivalent comparisons',async()=>{
-    for(const query of ['timeframe=custom','timeframe=custom&from=2026-02-30&to=2026-03-01','timeframe=custom&from=2026-03-02&to=2026-03-01','timeframe=custom&from=2020-01-01&to=2026-01-01']) await a.get(`/api/dashboard?${query}`).expect(400);
+    for(const query of ['timeframe=custom','timeframe=custom&from=2026-02-30&to=2026-03-01','timeframe=custom&from=2026-03-02&to=2026-03-01']) await a.get(`/api/dashboard?${query}`).expect(400);
+    // Total deliberately supports full history, including ranges longer than five years.
+    const history=(await a.get('/api/dashboard?timeframe=custom&from=2020-01-01&to=2026-01-01').expect(200)).body.data;
+    expect(history.bounds).toMatchObject({startLocal:'2020-01-01',endLocalExclusive:'2026-01-02'});
     for(const [frame,start,end] of [['this-week','2026-03-09','2026-03-16'],['this-month','2026-03-01','2026-03-16'],['last-month','2026-02-01','2026-03-01'],['last-30-days','2026-02-14','2026-03-16'],['this-year','2026-01-01','2026-03-16']]){
       const data=(await a.get(`/api/dashboard?timeframe=${frame}&anchor=2026-03-15`).expect(200)).body.data;
       expect(data.bounds.startLocal).toBe(start);expect(data.bounds.endLocalExclusive).toBe(end);
       expect(Date.parse(end!)-Date.parse(start!)).toBe(Date.parse(data.comparisonBounds.endLocalExclusive)-Date.parse(data.comparisonBounds.startLocal));
     }
+  });
+  it('persists personal month preferences, validates days, and honors timezone-aware cycle boundaries',async()=>{
+    for(const monthStartDay of [0,32,5.5,'5',null]) await a.patch('/api/auth/preferences').send({monthStartDay}).expect(400);
+    await a.patch('/api/auth/preferences').send({customMonthEnabled:'yes'}).expect(400);
+    await a.patch('/api/auth/preferences').send({customMonthEnabled:true,monthStartDay:5}).expect(200);
+    expect((await a.get('/api/auth/me')).body.data.user).toMatchObject({customMonthEnabled:true,monthStartDay:5});
+    expect((await b.get('/api/auth/me')).body.data.user).toMatchObject({customMonthEnabled:false,monthStartDay:1});
+    const login=await request(app).post('/api/auth/login').send({email:(await a.get('/api/auth/me')).body.data.user.email,password:'Correct-Horse-47!'}).expect(200);
+    expect(login.body.data.user).toMatchObject({customMonthEnabled:true,monthStartDay:5});
+    try {
+      for(const [occurredAt,amount] of [['2026-10-04T20:59:59Z','11'],['2026-10-04T21:00:00Z','22'],['2026-11-04T21:59:59Z','33'],['2026-11-04T22:00:00Z','44']])
+        await a.post('/api/transactions').send({kind:'expense',sourceAccountId:eur,currency:'EUR',occurredAt,amount}).expect(201);
+      const data=(await a.get('/api/dashboard?timeframe=monthly&anchor=2026-10-08').expect(200)).body.data;
+      expect(data.bounds).toMatchObject({startLocal:'2026-10-05',endLocalExclusive:'2026-11-05',startUtc:'2026-10-04T21:00:00.000Z',endUtcExclusive:'2026-11-04T22:00:00.000Z'});
+      expect(data.cashFlow.find((r:any)=>r.currency==='EUR').actualSpending).toBe('55.0000');
+      expect(data.comparisonBounds).toEqual({startLocal:'2026-09-05',endLocalExclusive:'2026-10-05'});
+      expect(data.previousCashFlow.find((r:any)=>r.currency==='EUR').actualSpending).toBe('11.0000');
+      const before=(await a.get('/api/dashboard?timeframe=monthly&anchor=2026-10-04').expect(200)).body.data;
+      expect(before.bounds).toMatchObject({startLocal:'2026-09-05',endLocalExclusive:'2026-10-05'});
+      const elapsed=(await a.get('/api/dashboard?timeframe=this-month&anchor=2026-10-08').expect(200)).body.data;
+      expect(elapsed.bounds).toMatchObject({startLocal:'2026-10-05',endLocalExclusive:'2026-10-09'});
+      expect(elapsed.comparisonBounds).toEqual({startLocal:'2026-09-05',endLocalExclusive:'2026-09-09'});
+      const last=(await a.get('/api/dashboard?timeframe=last-month&anchor=2026-10-08').expect(200)).body.data;
+      expect(last.bounds).toMatchObject({startLocal:'2026-09-05',endLocalExclusive:'2026-10-05'});
+      expect(last.comparisonBounds).toEqual({startLocal:'2026-08-05',endLocalExclusive:'2026-09-05'});
+      await a.patch('/api/auth/preferences').send({monthStartDay:31}).expect(200);
+      const short=(await a.get('/api/dashboard?timeframe=monthly&anchor=2026-02-28').expect(200)).body.data;
+      expect(short.bounds).toMatchObject({startLocal:'2026-02-28',endLocalExclusive:'2026-03-31'});
+      expect(short.comparisonBounds).toEqual({startLocal:'2026-01-31',endLocalExclusive:'2026-02-28'});
+    } finally { await a.patch('/api/auth/preferences').send({customMonthEnabled:false}).expect(200); }
+    expect((await a.get('/api/auth/me')).body.data.user).toMatchObject({customMonthEnabled:false,monthStartDay:31});
+    const normal=(await a.get('/api/dashboard?timeframe=monthly&anchor=2026-10-08').expect(200)).body.data;
+    expect(normal.bounds).toMatchObject({startLocal:'2026-10-01',endLocalExclusive:'2026-11-01'});
   });
   it('reports missing banking setup honestly while keeping owner authorization',async()=>{
     const unconfigured=createApp(pool,{...config,bankingOwnerUserId:ids[0]!});

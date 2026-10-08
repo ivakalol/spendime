@@ -55,4 +55,4 @@ export const useCreateRecurring = () => useDomainMutation<RecurringInput, Recurr
 export const useUpdateRecurring = (id: string) => useDomainMutation<RecurringInput, RecurringRule>(`/api/recurring-rules/${id}`, 'PATCH', [keys.recurring]);
 export const useDisableRecurring = () => useDomainMutation<string, void>((id) => `/api/recurring-rules/${id}`, 'DELETE', [keys.recurring]);
 
-export const useSavePreferences = () => useDomainMutation<{baseCurrency?: string; timezone?: string; completeOnboarding?: true}, {saved: boolean}>('/api/auth/preferences', 'PATCH', [keys.me, keys.dashboard]);
+export const useSavePreferences = () => useDomainMutation<{baseCurrency?: string; timezone?: string; completeOnboarding?: true; customMonthEnabled?: boolean; monthStartDay?: number}, {saved: boolean}>('/api/auth/preferences', 'PATCH', [keys.me, keys.dashboard]);

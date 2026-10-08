@@ -59,13 +59,14 @@ export function createAuthRouter(pool: pg.Pool, config: AppConfig, providerReady
       ...(bankingAccess ? { bankingEnvironment: config.nodeEnv === 'production' ? 'production' : 'sandbox' } : {}) } } });
   });
   router.patch('/preferences', requireAuthentication(pool), sameOrigin, async (request, response) => {
-    const input = z.object({ baseCurrency: currencySchema.optional(), timezone: z.string().max(100).optional(), completeOnboarding: z.literal(true).optional() }).strict().parse(request.body);
+    const input = z.object({ baseCurrency: currencySchema.optional(), timezone: z.string().min(1).max(100).optional(), completeOnboarding: z.literal(true).optional(), customMonthEnabled: z.boolean().optional(), monthStartDay: z.number().int().min(1).max(31).optional() }).strict().parse(request.body);
     await inUserTransaction(pool, request, async (client, userId) => {
       if (input.timezone && !(await client.query('SELECT 1 FROM pg_timezone_names WHERE name=$1', [input.timezone])).rowCount)
         throw new ApiError(400, 'invalid_timezone', 'Choose a valid timezone.');
       await client.query(`UPDATE users SET base_currency=COALESCE($2,base_currency), timezone=COALESCE($3,timezone),
-        onboarding_completed_at=CASE WHEN $4 THEN COALESCE(onboarding_completed_at,now()) ELSE onboarding_completed_at END
-        WHERE id=$1`, [userId,input.baseCurrency ?? null,input.timezone ?? null,input.completeOnboarding ?? false]);
+        onboarding_completed_at=CASE WHEN $4 THEN COALESCE(onboarding_completed_at,now()) ELSE onboarding_completed_at END,
+        custom_month_enabled=COALESCE($5,custom_month_enabled), month_start_day=COALESCE($6,month_start_day)
+        WHERE id=$1`, [userId,input.baseCurrency ?? null,input.timezone ?? null,input.completeOnboarding ?? false,input.customMonthEnabled ?? null,input.monthStartDay ?? null]);
     });
     response.json({ data: { saved: true } });
   });

@@ -3,6 +3,8 @@ export interface SafeUser {
   email: string;
   displayName: string;
   baseCurrency: string;
+  customMonthEnabled: boolean;
+  monthStartDay: number;
   onboardingCompletedAt?: string | null;
   timezone: string;
   emailVerifiedAt: string | null;

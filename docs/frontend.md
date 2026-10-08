@@ -64,7 +64,15 @@ Dates are formatted with the authenticated user's stored IANA timezone.
 is sent to the API. Transaction date filters convert the inclusive displayed
 end date to the backend's exclusive boundary. The browser timezone is only an
 informational suggestion; it never overwrites the profile. PostgreSQL remains
-authoritative for dashboard day/week/month/year boundaries and DST behavior.
+authoritative for conversion of reporting boundaries to UTC and DST behavior.
+
+In Settings → Money & dates, **Custom month start** aligns the Month view with a
+chosen day (1–31). For example, day 5 shows October 5 through November 4. Days
+29–31 clamp to the last day of shorter months without drifting subsequent cycles.
+The switch and chosen day are stored on the user's profile across sessions and
+devices. The default remains off, preserving the existing rolling 30-day Month
+view. Day, Week, Year and Total remain unchanged. Full budget cycles compare with
+the previous full cycle; the API also supports budget month-to-date comparisons.
 
 ## PWA, iOS, offline, and updates
 
@@ -122,7 +130,6 @@ of `npm test`.
 
 - Recurring rules are templates only; there is no scheduler or offline write
   synchronization.
-- Profile timezone editing awaits a backend profile endpoint.
 - Simple asset return is not IRR, XIRR, TWR, or MWR.
 - There is no FX conversion, so the dashboard displays currency-grouped server
   results and defaults summary emphasis to the user's base currency.

@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { ApiError } from '../../errors.js';
+import { budgetMonthWindow } from '../../../shared/budgetMonth.js';
 
 export type Timeframe = 'daily'|'weekly'|'monthly'|'6-month'|'annual'|'this-week'|'this-month'|'last-month'|'last-30-days'|'this-year'|'custom';
 
@@ -11,6 +12,20 @@ interface Bounds {
 export async function getDashboard(
   client:pg.PoolClient,userId:string,timeframe:Timeframe,anchor?:string,from?:string,to?:string,
 ){
+  let monthRange: ReturnType<typeof budgetMonthWindow> | undefined;
+  let previousMonthRange: ReturnType<typeof budgetMonthWindow> | undefined;
+  if (['monthly', 'this-month', 'last-month'].includes(timeframe)) {
+    const settings = (await client.query<{anchorDate:string;customMonthEnabled:boolean;monthStartDay:number}>(`
+      SELECT COALESCE($2::date,(now() AT TIME ZONE timezone)::date)::text AS "anchorDate",
+        custom_month_enabled AS "customMonthEnabled",month_start_day AS "monthStartDay"
+      FROM users WHERE id=$1 AND EXISTS (SELECT 1 FROM pg_timezone_names WHERE name=users.timezone)`,
+      [userId,anchor??null])).rows[0];
+    if (settings?.customMonthEnabled) {
+      const steps = timeframe === 'last-month' ? 1 : 0;
+      monthRange = budgetMonthWindow(settings.anchorDate, settings.monthStartDay, steps);
+      previousMonthRange = budgetMonthWindow(settings.anchorDate, settings.monthStartDay, steps + 1);
+    }
+  }
 
   const boundsResult=await client.query<Bounds>(`
     WITH settings AS (
@@ -22,13 +37,13 @@ export async function getDashboard(
         CASE $2
           WHEN 'custom' THEN $4::date::timestamp
           WHEN 'this-week' THEN date_trunc('week',anchor_date::timestamp)
-          WHEN 'this-month' THEN date_trunc('month',anchor_date::timestamp)
-          WHEN 'last-month' THEN date_trunc('month',anchor_date::timestamp)-interval '1 month'
+          WHEN 'this-month' THEN COALESCE($6::date::timestamp,date_trunc('month',anchor_date::timestamp))
+          WHEN 'last-month' THEN COALESCE($6::date::timestamp,date_trunc('month',anchor_date::timestamp)-interval '1 month')
           WHEN 'last-30-days' THEN anchor_date::timestamp-interval '29 days'
           WHEN 'this-year' THEN date_trunc('year',anchor_date::timestamp)
           WHEN 'daily' THEN anchor_date::timestamp
           WHEN 'weekly' THEN date_trunc('week',anchor_date::timestamp)
-          WHEN 'monthly' THEN date_trunc('month',anchor_date::timestamp)
+          WHEN 'monthly' THEN COALESCE($6::date::timestamp,date_trunc('month',anchor_date::timestamp))
           WHEN '6-month' THEN date_trunc('month',anchor_date::timestamp)-interval '5 months'
           WHEN 'annual' THEN date_trunc('year',anchor_date::timestamp)
         END start_local
@@ -38,12 +53,12 @@ export async function getDashboard(
         WHEN 'custom' THEN $5::date::timestamp+interval '1 day'
         WHEN 'this-week' THEN anchor_date::timestamp+interval '1 day'
         WHEN 'this-month' THEN anchor_date::timestamp+interval '1 day'
-        WHEN 'last-month' THEN start_local+interval '1 month'
+        WHEN 'last-month' THEN COALESCE($7::date::timestamp,start_local+interval '1 month')
         WHEN 'last-30-days' THEN anchor_date::timestamp+interval '1 day'
         WHEN 'this-year' THEN anchor_date::timestamp+interval '1 day'
         WHEN 'daily' THEN start_local+interval '1 day'
         WHEN 'weekly' THEN start_local+interval '7 days'
-        WHEN 'monthly' THEN start_local+interval '1 month'
+        WHEN 'monthly' THEN COALESCE($7::date::timestamp,start_local+interval '1 month')
         WHEN '6-month' THEN start_local+interval '6 months'
         WHEN 'annual' THEN start_local+interval '1 year'
       END end_local FROM local_bounds
@@ -52,7 +67,7 @@ export async function getDashboard(
       end_local::date::text AS "endLocalExclusive",
       start_local AT TIME ZONE timezone AS "startUtc",
       end_local AT TIME ZONE timezone AS "endUtcExclusive" FROM complete`,
-    [userId,timeframe,anchor??null,from??null,to??null]);
+    [userId,timeframe,anchor??null,from??null,to??null,monthRange?.from??null,monthRange?.endExclusive??null]);
   const bounds=boundsResult.rows[0];
   if(!bounds)throw new ApiError(400,'invalid_timezone','The user timezone is not a valid IANA timezone.');
 
@@ -148,8 +163,11 @@ export async function getDashboard(
     [...range,timeframe,bounds.timezone])).rows;
 
   const comparisonBounds = (await client.query(`SELECT
-    ($1::date-($2::date-$1::date))::text AS "startLocal",$1::date::text AS "endLocalExclusive"`,
-    [bounds.startLocal,bounds.endLocalExclusive])).rows[0];
+    COALESCE($3::date,($1::date-($2::date-$1::date)))::text AS "startLocal",
+    CASE WHEN $3::date IS NULL THEN $1::date
+      WHEN $5 THEN LEAST($4::date,$3::date+($2::date-$1::date))
+      ELSE $4::date END::text AS "endLocalExclusive"`,
+    [bounds.startLocal,bounds.endLocalExclusive,previousMonthRange?.from??null,previousMonthRange?.endExclusive??null,timeframe==='this-month'])).rows[0];
   const previousCashFlow=(await client.query(`SELECT currency,
     (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
     COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome"

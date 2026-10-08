@@ -92,6 +92,19 @@ const bg: Record<string, string> = {
   'Your device is in {timezone}; this entry uses your profile timezone.': 'Устройството ви е в {timezone}; записът използва часовата зона на профила.',
   'Create a money account before adding an entry.': 'Създайте парична сметка, преди да добавите запис.',
   'Password credentials are ready to coexist with future Google sign-in.': 'Входът с парола е подготвен да работи и с бъдещ вход чрез Google.',
+  'Sign out of Spendime?': 'Изход от Spendime?',
+  'You’ll need to sign in again to access your finances.': 'Ще трябва да влезете отново, за да видите финансите си.',
+  'Stay signed in': 'Остани в профила', 'Confirm sign out': 'Потвърди изхода',
+  'Custom month start': 'Персонално начало на месеца',
+  'Align your Month view with payday or your personal budget cycle.': 'Съобразете месечния изглед с деня за заплата или личния си бюджетен цикъл.',
+  'Start each month on': 'Започвай всеки месец на',
+  'For days 29–31, shorter months use their last day.': 'За дни 29–31 по-кратките месеци използват последния си ден.',
+  'Day {day}': 'Ден {day}', 'Current cycle preview': 'Преглед на текущия цикъл',
+  'Applies to the Month view after you save. Day, Week, Year and Total stay the same.': 'Прилага се към месечния изглед след запазване. Ден, Седмица, Година и Общо остават същите.',
+  'Off: your Month view keeps its current rolling 30-day window.': 'Изключено: месечният изглед запазва текущия подвижен 30-дневен период.',
+  'Budget month · starts on day {day}': 'Бюджетен месец · започва на ден {day}',
+  'Use device timezone': 'Използвай часовата зона на устройството',
+  'Filters': 'Филтри', 'Clear filters': 'Изчисти филтрите', 'Chart values': 'Стойности на диаграмата',
 };
 
 export function translate(language: Language, key: string, values?: Record<string, string | number>): string {

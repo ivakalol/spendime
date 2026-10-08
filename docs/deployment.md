@@ -209,6 +209,22 @@ docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB
 docker compose up -d --build
 ```
 
+## Upgrade preferences on an existing database
+
+Before deploying the custom month settings to an existing database, apply both
+preferences migrations if they have not already been applied. They are additive
+and safe to rerun; existing users have custom months disabled by default.
+
+```powershell
+Get-Content -Raw database/init/006_product_preferences.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
+Get-Content -Raw database/init/009_budget_month.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
+docker compose up -d --build app
+```
+
+For Bash, redirect each SQL file into the same `docker compose exec -T` command.
+Fresh Compose installations mount and run both migrations automatically.
+
+
 ## Completely reset the development database
 
 This permanently deletes every database record in the named volume and reruns

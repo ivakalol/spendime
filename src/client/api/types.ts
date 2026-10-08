@@ -5,6 +5,7 @@ export type TransactionMethod = 'standard' | 'amortized' | 'recurring';
 
 export interface User {
   id: string; email: string; displayName: string; baseCurrency: string; timezone: string;
+  customMonthEnabled?: boolean; monthStartDay?: number;
   emailVerifiedAt: string | null; createdAt: string; bankingAccess: boolean; bankingEnabled: boolean;
   onboardingCompletedAt?: string | null; bankingStatus?: 'ready' | 'restricted' | 'disabled' | 'unconfigured';
   bankingEnvironment?: 'sandbox' | 'production';

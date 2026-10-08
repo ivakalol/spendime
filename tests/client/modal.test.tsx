@@ -10,6 +10,7 @@ afterEach(() => {
   document.body.style.overflow = '';
   document.documentElement.style.overflow = '';
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('responsive modal primitive', () => {
@@ -57,5 +58,27 @@ describe('responsive modal primitive', () => {
     rerender(<Modal open title="Dialog" onClose={onClose}><Button>Action</Button></Modal>);
     await userEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('prevents dismissal while an important request is pending', () => {
+    const onClose = vi.fn();
+    render(<Modal open closeDisabled title="Signing out" onClose={onClose}><Button loading>Confirm</Button></Modal>);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.mouseDown(screen.getByRole('dialog').parentElement!);
+    expect(screen.getByRole('button', { name: 'Close dialog' })).toBeDisabled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('resizes phone sheets to the visible area when a software keyboard opens', () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const viewport = Object.assign(new EventTarget(), {height:844,offsetTop:0,scale:1});
+    vi.stubGlobal('visualViewport', viewport);
+    render(<Modal open title="Entry" onClose={vi.fn()}><input /></Modal>);
+    const layer = screen.getByRole('dialog').parentElement!;
+    expect(layer.style.getPropertyValue('--dialog-height')).toBe('844px');
+    viewport.height = 350; viewport.offsetTop = 120;
+    viewport.dispatchEvent(new Event('resize'));
+    expect(layer.style.getPropertyValue('--dialog-height')).toBe('350px');
+    expect(layer.style.getPropertyValue('--dialog-top')).toBe('120px');
   });
 });

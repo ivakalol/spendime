@@ -26,23 +26,25 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
 export function Input({ className, placeholder, 'aria-label': ariaLabel, ...props }: InputHTMLAttributes<HTMLInputElement>) { const {t}=useLanguage();return <input className={cn('control-press min-h-12 w-full rounded-2xl border border-brand/[.14] bg-surface px-3.5 text-base text-ink shadow-[0_1px_0_rgba(255,255,255,.8),inset_0_1px_2px_rgba(18,42,43,.025)] outline-none placeholder:text-muted/55 hover:border-brand/25 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:cursor-not-allowed disabled:bg-brand/[.035] disabled:text-muted', className)} placeholder={placeholder ? t(placeholder) : undefined} aria-label={ariaLabel ? t(ariaLabel) : undefined} {...props} />; }
 export function Select({ className, children, 'aria-label': ariaLabel, ...props }: SelectHTMLAttributes<HTMLSelectElement>) { const {t}=useLanguage();return <span className="relative block min-w-0"><select className={cn('control-press min-h-12 w-full appearance-none rounded-2xl border border-brand/[.14] bg-surface py-2.5 pl-3.5 pr-10 text-base text-ink shadow-[0_1px_0_rgba(255,255,255,.8),inset_0_1px_2px_rgba(18,42,43,.025)] outline-none hover:border-brand/25 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:cursor-not-allowed disabled:bg-brand/[.035] disabled:text-muted', className)} aria-label={ariaLabel ? t(ariaLabel) : undefined} {...props}>{translateOptions(children,t)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" /></span>; }
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'positive' | 'negative' | 'info' | 'warning' }) { const {t}=useLanguage();return <span className={cn('inline-flex max-w-full items-center break-words rounded-full px-2.5 py-1 text-xs font-semibold', tone === 'neutral' && 'bg-brand/8 text-muted', tone === 'positive' && 'bg-emerald-50 text-emerald-800', tone === 'negative' && 'bg-rose-50 text-rose-800', tone === 'info' && 'bg-blue-50 text-blue-800', tone === 'warning' && 'bg-amber-50 text-amber-900')}>{translateChildren(children,t)}</span>; }
-export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) { const {t}=useLanguage();return <header className="mb-4 flex flex-wrap items-start justify-between gap-2.5 sm:mb-7 sm:flex-nowrap sm:gap-6"><div className="min-w-0">{eyebrow && <p className="mb-1 text-[11px] font-bold uppercase tracking-[.2em] text-accent sm:mb-1.5">{t(eyebrow)}</p>}<h1 className="text-[1.65rem] font-bold leading-tight tracking-[-.035em] text-ink sm:text-3xl">{t(title)}</h1>{description && <p className="mt-1 max-w-2xl text-sm leading-snug text-muted sm:mt-1.5 sm:leading-relaxed">{t(description)}</p>}</div>{action && <div className="shrink-0">{action}</div>}</header>; }
+export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) { const {t}=useLanguage();return <header className="page-header mb-4 flex flex-wrap items-start justify-between gap-2.5 sm:mb-7 sm:flex-nowrap sm:gap-6"><div className="min-w-0">{eyebrow && <p className="mb-1 text-[11px] font-bold uppercase tracking-[.2em] text-accent sm:mb-1.5">{t(eyebrow)}</p>}<h1 className="text-[1.65rem] font-bold leading-tight tracking-[-.035em] text-ink sm:text-3xl">{t(title)}</h1>{description && <p className="mt-1 max-w-2xl text-sm leading-snug text-muted sm:mt-1.5 sm:leading-relaxed">{t(description)}</p>}</div>{action && <div className="page-header-action shrink-0">{action}</div>}</header>; }
 export function LoadingState({ label }: { label?: string }) { const {t}=useLanguage();return <div className="grid min-h-56 place-items-center text-sm text-muted" role="status" aria-live="polite"><span className="flex flex-col items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-surface shadow-soft"><LoaderCircle className="size-5 animate-spin text-accent" /></span>{label??t('Loading your finances…')}</span></div>; }
 export function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) { const {t}=useLanguage();return <Card className="grid place-items-center gap-3 py-10 text-center"><p className="font-semibold text-ink">{t('Something didn’t load')}</p><p className="max-w-md break-words text-sm text-muted">{error instanceof Error ? error.message : t('Please try again.')}</p>{retry && <Button variant="secondary" onClick={retry}><RefreshCw className="size-4" />{t('Retry')}</Button>}</Card>; }
 export function EmptyState({ icon, title, description, action }: { icon: ReactNode; title: string; description: string; action?: ReactNode }) { const {t}=useLanguage();return <Card className="surface-grid grid place-items-center gap-4 overflow-hidden py-14 text-center"><div className="grid size-14 place-items-center rounded-[1.25rem] bg-brand/[.08] text-brand shadow-sm ring-1 ring-brand/[.07]">{icon}</div><div><h2 className="font-semibold text-ink">{t(title)}</h2><p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted">{t(description)}</p></div>{action}</Card>; }
-export function Modal({ open, title, description, onClose, children }: { open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ open, title, description, onClose, children, closeDisabled = false }: { open: boolean; title: string; description?: string; onClose: () => void; children: ReactNode; closeDisabled?: boolean }) {
   const {t}=useLanguage();
   const panel = useRef<HTMLElement>(null);
+  const layer = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
   const closeRef = useRef(onClose); closeRef.current = onClose;
+  const disabledRef = useRef(closeDisabled); disabledRef.current = closeDisabled;
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const element = panel.current;
     element?.focus();
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeRef.current();
+      if (event.key === 'Escape' && !disabledRef.current) closeRef.current();
       if (event.key === 'Tab' && element) {
         const focusable = [...element.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')];
         const first = focusable[0], last = focusable.at(-1);
@@ -56,21 +58,36 @@ export function Modal({ open, title, description, onClose, children }: { open: b
     const originalHtmlOverflow = document.documentElement.style.overflow;
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
+    // On mobile Safari, the keyboard shrinks the visual viewport rather than 100dvh.
+    const viewport = window.visualViewport;
+    const resize = () => {
+      if (!layer.current) return;
+      const visibleViewport = viewport && viewport.scale === 1;
+      layer.current.style.setProperty('--dialog-height', visibleViewport ? `${viewport.height}px` : '100dvh');
+      layer.current.style.setProperty('--dialog-top', visibleViewport ? `${viewport.offsetTop}px` : '0px');
+    };
+    resize();
+    viewport?.addEventListener('resize', resize);
+    viewport?.addEventListener('scroll', resize);
+    window.addEventListener('resize', resize);
     return () => {
       document.removeEventListener('keydown', keydown);
+      viewport?.removeEventListener('resize', resize);
+      viewport?.removeEventListener('scroll', resize);
+      window.removeEventListener('resize', resize);
       document.body.style.overflow = originalBodyOverflow;
       document.documentElement.style.overflow = originalHtmlOverflow;
       previous?.focus();
     };
   }, [open]);
   if (!open) return null;
-  return createPortal(<div className="modal-layer animate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  return createPortal(<div ref={layer} className="modal-layer animate-backdrop" role="presentation" onMouseDown={(event) => { if (!closeDisabled && event.target === event.currentTarget) onClose(); }}>
     <section ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} className="modal-panel animate-sheet" data-modal-panel>
       <div className="modal-header">
         <div className="modal-handle" aria-hidden="true" />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0"><h2 id={titleId} className="break-words text-xl font-bold tracking-tight text-ink">{t(title)}</h2>{description && <p id={descriptionId} className="mt-1 max-w-md text-sm leading-relaxed text-muted">{t(description)}</p>}</div>
-          <Button variant="ghost" className="-mr-2 size-11 shrink-0 px-0" onClick={onClose} aria-label={t('Close dialog')}><X className="size-5" /></Button>
+          <Button variant="ghost" className="-mr-2 size-11 shrink-0 px-0" disabled={closeDisabled} onClick={onClose} aria-label={t('Close dialog')}><X className="size-5" /></Button>
         </div>
       </div>
       <div className="modal-scroll" data-modal-scroll>{children}</div>

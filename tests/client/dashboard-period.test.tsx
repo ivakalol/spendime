@@ -6,8 +6,9 @@ import DashboardPage, { dashboardWindow } from '../../src/client/pages/Dashboard
 import { todayInTimezone } from '../../src/client/utils/dateTime';
 
 const useDashboard=vi.fn(),useTransactions=vi.fn();
+const profile=vi.hoisted(()=>({baseCurrency:'EUR',timezone:'UTC',displayName:'Test',onboardingCompletedAt:'2026-01-01',customMonthEnabled:false,monthStartDay:1}));
 vi.mock('../../src/client/api/queries',()=>({
-  useMe:()=>({data:{baseCurrency:'EUR',timezone:'UTC',displayName:'Test',onboardingCompletedAt:'2026-01-01'}}),
+  useMe:()=>({data:profile}),
   useDashboard:(...args:unknown[])=>useDashboard(...args),
   useTransactions:(...args:unknown[])=>useTransactions(...args),
   useSavePreferences:()=>({mutate:vi.fn()}),
@@ -21,7 +22,7 @@ beforeEach(()=>{
   useDashboard.mockReturnValue({data,isPending:false,isError:false});
   useTransactions.mockReturnValue({data:{data:[{occurredAt:'2023-04-01T12:00:00Z'}]},isSuccess:true,isError:false});
 });
-afterEach(()=>{cleanup();localStorage.clear();useDashboard.mockReset();useTransactions.mockReset();});
+afterEach(()=>{cleanup();localStorage.clear();useDashboard.mockReset();useTransactions.mockReset();profile.customMonthEnabled=false;profile.monthStartDay=1;});
 
 it('calculates adjacent rolling windows, including calendar-aware years',()=>{
   expect(dashboardWindow('day',0,'2026-09-29')).toEqual({from:'2026-09-29',to:'2026-09-29'});
@@ -33,6 +34,13 @@ it('calculates adjacent rolling windows, including calendar-aware years',()=>{
   expect(dashboardWindow('month',2,'2026-09-29')).toEqual({from:'2026-07-02',to:'2026-07-31'});
   expect(dashboardWindow('year',0,'2026-09-29')).toEqual({from:'2025-09-30',to:'2026-09-29'});
   expect(dashboardWindow('year',1,'2026-09-29')).toEqual({from:'2024-09-30',to:'2025-09-29'});
+});
+
+it('uses payday cycles only for Month when a start day is supplied',()=>{
+  expect(dashboardWindow('month',0,'2026-10-08',5)).toEqual({from:'2026-10-05',to:'2026-11-04'});
+  expect(dashboardWindow('month',1,'2026-10-08',5)).toEqual({from:'2026-09-05',to:'2026-10-04'});
+  expect(dashboardWindow('week',0,'2026-10-08',5)).toEqual(dashboardWindow('week',0,'2026-10-08'));
+  expect(dashboardWindow('year',0,'2026-10-08',5)).toEqual(dashboardWindow('year',0,'2026-10-08'));
 });
 
 it('uses segmented periods, refetches on navigation, and restores the period type',()=>{
@@ -58,4 +66,17 @@ it('uses the earliest transaction for Total and omits prior-period comparisons',
   expect(useDashboard).toHaveBeenLastCalledWith('custom',undefined,'2023-04-01',todayInTimezone('UTC'),true);
   expect(screen.queryByRole('button',{name:'Previous period'})).toBeNull();
   expect(screen.queryByText(/Compared with/)).toBeNull();
+});
+
+it('requests server-calculated budget cycles and keeps other views unchanged',()=>{
+  profile.customMonthEnabled=true;profile.monthStartDay=5;
+  const today=todayInTimezone('UTC');
+  open();
+  const current=dashboardWindow('month',0,today,5);
+  expect(useDashboard).toHaveBeenLastCalledWith('monthly',current.from,current.from,current.to,true);
+  fireEvent.click(screen.getByRole('button',{name:'Previous period'}));
+  const previous=dashboardWindow('month',1,today,5);
+  expect(useDashboard).toHaveBeenLastCalledWith('monthly',previous.from,previous.from,previous.to,true);
+  fireEvent.click(screen.getByRole('button',{name:'Week',exact:true}));
+  expect(useDashboard).toHaveBeenLastCalledWith('custom',undefined,...Object.values(dashboardWindow('week',0,today)),true);
 });

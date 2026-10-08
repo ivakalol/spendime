@@ -94,12 +94,14 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
 .modal-layer {
   position: fixed;
   inset: 0;
+  top: var(--dialog-top, 0px);
+  bottom: auto;
   z-index: var(--z-dialog);
   display: flex;
   height: 100vh;
-  height: 100dvh;
+  height: var(--dialog-height, 100dvh);
   max-height: 100vh;
-  max-height: 100dvh;
+  max-height: var(--dialog-height, 100dvh);
   align-items: flex-end;
   justify-content: center;
   overflow: hidden;
@@ -110,14 +112,14 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
   backdrop-filter: blur(3px);
   isolation: isolate;
   overscroll-behavior: none;
-  touch-action: none;
+  touch-action: auto;
 }
 .modal-panel {
   display: flex;
   width: 100%;
   min-height: 0;
   max-height: calc(100vh - max(.75rem, env(safe-area-inset-top)));
-  max-height: calc(100dvh - max(.75rem, env(safe-area-inset-top)));
+  max-height: calc(var(--dialog-height, 100dvh) - max(.75rem, env(safe-area-inset-top)));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, .5);
@@ -147,7 +149,7 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
   padding: .15rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom));
   scroll-padding-top: .5rem;
   scroll-padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
-  touch-action: pan-y;
+  touch-action: auto;
   -webkit-overflow-scrolling: touch;
 }
 .modal-scroll > form { min-width: 0; }
@@ -176,7 +178,7 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
   .modal-panel {
     max-width: 36rem;
     max-height: calc(100vh - max(1.5rem, env(safe-area-inset-top)) - max(1.5rem, env(safe-area-inset-bottom)));
-    max-height: calc(100dvh - max(1.5rem, env(safe-area-inset-top)) - max(1.5rem, env(safe-area-inset-bottom)));
+    max-height: calc(var(--dialog-height, 100dvh) - max(1.5rem, env(safe-area-inset-top)) - max(1.5rem, env(safe-area-inset-bottom)));
     border-radius: 1.5rem;
     box-shadow: 0 24px 70px rgba(18, 42, 43, .24);
   }
@@ -241,24 +243,6 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
   .modal-scroll label.grid { row-gap: .375rem; }
   .modal-actions { gap: .5rem; }
 }
-@media (min-width: 380px) and (max-width: 639px) {
-  .mobile-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .mobile-kpis > :last-child { grid-column: auto; }
-  .transaction-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .transaction-amount { grid-column: 3; display: block; border-top: 0; padding-top: 0; }
-  .transaction-amount > div { gap: 0; }
-  .transaction-amount button { width: 50%; justify-content: center; font-size: 0; }
-  .transaction-amount button svg { width: 1rem; height: 1rem; }
-}
-@media (min-width: 360px) and (max-width: 639px) {
-  .dashboard-heading header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: .5rem; }
-  .dashboard-heading header > div:first-child { display: contents; }
-  .dashboard-heading header > div:first-child > p:first-child { grid-column: 1; grid-row: 1; }
-  .dashboard-heading header h1 { grid-column: 1; grid-row: 2; }
-  .dashboard-heading header > div:first-child > p:last-child { grid-column: 1 / -1; grid-row: 3; }
-  .dashboard-heading header > div:last-child { grid-column: 2; grid-row: 1 / span 2; }
-  .dashboard-heading header > div:last-child button { padding-right: .75rem; padding-left: .75rem; }
-}
 @media (max-width: 379px) {
   .mobile-kpis > :last-child { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 45%); column-gap: .5rem; align-items: center; }
   .mobile-kpis > :last-child > .money-value { grid-column: 2; grid-row: 1; margin-top: 0; text-align: right; }
@@ -266,4 +250,44 @@ input:-webkit-autofill { -webkit-text-fill-color: rgb(var(--ink)); -webkit-box-s
 }
 @media (max-width: 359px) {
   .mobile-pair-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Shared refinements keep every screen comfortable on phones and in landscape. */
+.logout-button { background: #dc2626; color: white; box-shadow: 0 4px 12px rgb(220 38 38 / .12); }
+.logout-button:hover { background: #b91c1c; }
+.balance-overview { overflow: hidden; background: linear-gradient(115deg, #102a2c, #235850); color: white; border-color: transparent; box-shadow: 0 12px 30px rgb(16 42 44 / .16); }
+.balance-overview::before { content: ''; position: absolute; right: -4rem; top: -6rem; width: 17rem; height: 17rem; border-radius: 50%; border: 1px solid rgb(255 255 255 / .09); background: rgb(255 255 255 / .025); pointer-events: none; }
+.balance-overview p { position: relative; }
+.balance-overview .text-muted { color: rgb(255 255 255 / .75); }
+.balance-overview a { position: relative; color: white; text-decoration-color: rgb(255 255 255 / .45); text-underline-offset: 4px; }
+.balance-overview [class*="border-t"] { border-color: rgb(255 255 255 / .15); }
+.app-main > div { padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); }
+button > span { min-width: 0; }
+main h1, main h2, main h3 { overflow-wrap: anywhere; }
+main p, .modal-panel p, .modal-panel h2 { overflow-wrap: anywhere; }
+.break-words { overflow-wrap: anywhere; }
+main [class~="flex"] > div { min-width: 0; }
+.modal-scroll summary { min-height: 44px; padding-top: .75rem; padding-bottom: .75rem; }
+.trend-values { overscroll-behavior: contain; border-radius: .75rem; border: 1px solid rgb(var(--brand) / .08); }
+.trend-values table { min-width: 28rem; font-variant-numeric: tabular-nums; }
+.trend-values th, .trend-values td { padding: .75rem; vertical-align: top; }
+.trend-values thead { position: sticky; top: 0; background: rgb(var(--canvas)); }
+.trend-values tbody tr:nth-child(even) { background: rgb(var(--brand) / .025); }
+@media (min-width: 640px) { .app-main > div { padding-left: max(1.5rem, env(safe-area-inset-left)); padding-right: max(1.5rem, env(safe-area-inset-right)); } }
+@media (min-width: 1024px) { .app-main > div { padding-left: 2.25rem; padding-right: 2.25rem; } }
+@media (min-width: 1280px) { .app-main > div { padding-left: 3rem; padding-right: 3rem; } }
+@media (max-width: 639px) {
+  .app-mobile-nav { left: max(.5rem, env(safe-area-inset-left)); right: max(.5rem, env(safe-area-inset-right)); }
+  .transaction-amount { text-align: left; }
+  .transaction-amount > div { margin-top: 0; }
+  .transaction-amount button { min-width: 44px; padding-left: .75rem; padding-right: .75rem; }
+  .mobile-kpis > :last-child { background: rgb(var(--brand) / .045); border-color: rgb(var(--brand) / .1); }
+  .category-legend button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: .5rem; row-gap: .15rem; padding: .6rem .5rem; }
+  .category-legend .money-value { grid-column: 2 / -1; text-align: right; }
+}
+@media (max-width: 479px) {
+  .page-header > .page-header-action { width: 100%; }
+  .page-header-action > button { width: 100%; }
+  .page-header { row-gap: .875rem; margin-bottom: 1.25rem; }
+  .transaction-filter-grid { grid-template-columns: minmax(0, 1fr); }
 }

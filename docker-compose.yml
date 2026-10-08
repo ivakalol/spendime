@@ -30,8 +30,10 @@ services:
       - ./database/init/003_financial_integrity.sql:/docker-entrypoint-initdb.d/003_financial_integrity.sql:ro
       - ./database/init/004_banking.sql:/docker-entrypoint-initdb.d/004_banking.sql:ro
       - ./database/init/005_banking_reconciliation.sql:/docker-entrypoint-initdb.d/005_banking_reconciliation.sql:ro
+      - ./database/init/006_product_preferences.sql:/docker-entrypoint-initdb.d/006_product_preferences.sql:ro
       - ./database/init/007_bank_history_cutoff.sql:/docker-entrypoint-initdb.d/007_bank_history_cutoff.sql:ro
       - ./database/init/008_automatic_bank_ingestion.sql:/docker-entrypoint-initdb.d/008_automatic_bank_ingestion.sql:ro
+      - ./database/init/009_budget_month.sql:/docker-entrypoint-initdb.d/009_budget_month.sql:ro
     ports:
       - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
