@@ -4,7 +4,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { useMe, useAccounts, useArchiveAccount, useCreateAccount, usePermanentlyDeleteAccount, useRestoreAccount, useUpdateAccount } from '../api/queries';
 import type { Account, AccountInput } from '../api/types';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, FormError, Input, LoadingState, Modal, PageHeader, Select } from '../components/ui';
-import { formatMoney } from '../utils/money';
+import { formatMoney, moneyInputValue } from '../utils/money';
 import { useLanguage } from '../i18n';
 
 const blank: AccountInput = { name: '', kind: 'checking', currency: 'EUR', openingBalance: '0', institution: null, color: '#315f61', icon: null };
@@ -62,4 +62,4 @@ export function AccountDialog({ value, open, onClose }: { value: Account | null 
   </form></Modal>;
 }
 
-function toInput(account: Account): AccountInput { return { name: account.name, kind: account.kind, currency: account.currency, openingBalance: account.openingBalance, institution: account.institution, color: account.color, icon: account.icon }; }
+function toInput(account: Account): AccountInput { return { name: account.name, kind: account.kind, currency: account.currency, openingBalance: moneyInputValue(account.openingBalance), institution: account.institution, color: account.color, icon: account.icon }; }

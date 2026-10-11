@@ -14,7 +14,7 @@ import {
 } from '../components/ui';
 import { decimalToChartNumber } from '../utils/chartAdapter';
 import { browserTimezone, formatInTimezone, localInputNow, todayInTimezone, zonedInputToIso } from '../utils/dateTime';
-import { decimalSign, formatMoney, formatPercent } from '../utils/money';
+import { decimalSign, formatMoney, formatPercent, moneyInputValue } from '../utils/money';
 import { useLanguage } from '../i18n';
 
 export default function AssetsPage() {
@@ -80,7 +80,7 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
   const [account, setAccount] = useState('');
   const [current, setCurrent] = useState('');
   const [when, setWhen] = useState(() => localInputNow(timezone));
-  const [value, setValue] = useState(asset.currentValue);
+  const [value, setValue] = useState(() => moneyInputValue(asset.currentValue));
   const [note, setNote] = useState('');
   const [editingValuation, setEditingValuation] = useState<AssetValuation | null>(null);
   const updateValuation = useUpdateAssetValuation(asset.id, editingValuation?.id ?? '');
@@ -89,7 +89,7 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
   const valuationChart = [...(valuations.data?.data ?? [])].reverse().map((item) => ({ date: item.valuedAt.slice(0, 10), value: decimalToChartNumber(item.value), exact: item.value }));
   const chooseValuation = (item: AssetValuation | null) => {
     setEditingValuation(item);
-    setValue(item?.value ?? latest.currentValue);
+    setValue(moneyInputValue(item?.value ?? latest.currentValue));
     setNote(item?.note ?? '');
     updateValuation.reset();
   };

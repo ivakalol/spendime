@@ -9,7 +9,7 @@ import { booleanQuerySchema, currencySchema, dateSchema, positiveMoneySchema, uu
 import { createRule, disableRule, getRule, listRules, updateRule, type RecurringWrite } from './repository.js';
 
 const nullableId = uuidSchema.nullable().optional().default(null);
-const ruleSchema = z.object({
+export const ruleSchema = z.object({
   name:z.string().trim().min(1).max(120),
   kind:z.enum(['expense','income','transfer','asset_purchase','asset_sale','liability_drawdown','liability_payment','adjustment']),
   sourceAccountId:nullableId,destinationAccountId:nullableId,categoryId:nullableId,
@@ -34,7 +34,7 @@ const ruleSchema = z.object({
   if(value.endsOn&&value.endsOn<value.startsOn)context.addIssue({code:'custom',path:['endsOn'],message:'endsOn cannot precede startsOn.'});
 });
 
-async function validateReferences(client:pg.PoolClient,input:RecurringWrite):Promise<void>{
+export async function validateReferences(client:pg.PoolClient,input:RecurringWrite):Promise<void>{
   const accountIds=[...new Set([input.sourceAccountId,input.destinationAccountId].filter(Boolean))];
   if(accountIds.length){
     const result=await client.query<{id:string;currency:string;is_archived:boolean}>(

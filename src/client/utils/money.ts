@@ -1,5 +1,10 @@
 const DECIMAL = /^([+-]?)(\d+)(?:\.(\d+))?$/;
 
+// Remove storage padding when loading a form, without rounding meaningful digits.
+export function moneyInputValue(value: string): string {
+  return value.replace(/(\.\d{2}\d*?)0+$/, '$1');
+}
+
 function parts(value: string, fractionDigits = 2) {
   const match = DECIMAL.exec(value.trim());
   if (!match) return { negative: false, whole: '0', fraction: ''.padEnd(fractionDigits, '0') };

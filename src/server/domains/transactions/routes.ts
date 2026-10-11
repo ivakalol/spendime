@@ -12,6 +12,17 @@ import {
 import type { TransactionWrite } from './model.js';
 import { getTransaction, listTransactions, voidTransaction } from './repository.js';
 import { createTransaction, editTransaction } from './service.js';
+import { ruleSchema, validateReferences as validateRuleReferences } from '../recurring/routes.js';
+import { createRule } from '../recurring/repository.js';
+
+const paymentScheduleSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  intervalCount: z.number().int().positive().max(10_000),
+  intervalUnit: z.enum(['day', 'week', 'month', 'year']),
+  startsOn: dateSchema,
+  nextDueOn: dateSchema,
+  endsOn: dateSchema.nullable().optional().default(null),
+}).strict();
 
 const nullableId = uuidSchema.nullable().optional().default(null);
 const transactionSchema = z.object({
@@ -119,15 +130,35 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
   router.patch('/:id', async (request, response) => {
     const id = uuidSchema.parse(request.params.id);
     try {
-      const data = await inUserTransaction(pool, request, async (client) => {
+      const data = await inUserTransaction(pool, request, async (client, userId) => {
+        await client.query('SELECT id FROM transactions WHERE id=$1 FOR UPDATE', [id]);
         const current = requireRow(await getTransaction(client, id));
-        const input = transactionSchema.parse({
+        const { paymentSchedule, ...changes } = request.body;
+        const merged = {
           ...pickFields(current,[
             'kind','method','sourceAccountId','destinationAccountId','categoryId','assetId',
             'liabilityId','recurringRuleId','amount','currency','occurredAt','description',
             'merchant','amortizationStart','amortizationEnd',
-          ]),...request.body,
-        }) as TransactionWrite;
+          ]), ...changes,
+        };
+        if (paymentSchedule !== undefined) {
+          if (current.voidedAt || current.recurringRuleId || merged.kind !== 'expense' || merged.method !== 'recurring') {
+            throw new ApiError(409, 'invalid_payment_conversion', 'Only an unlinked, active expense can become a new regular payment.');
+          }
+          const schedule = paymentScheduleSchema.parse(paymentSchedule);
+          if (schedule.nextDueOn <= schedule.startsOn) {
+            throw new ApiError(400, 'invalid_payment_schedule', 'The next payment must be after this payment.');
+          }
+          const rule = ruleSchema.parse({
+            ...schedule, kind: merged.kind, sourceAccountId: merged.sourceAccountId,
+            destinationAccountId: merged.destinationAccountId, categoryId: merged.categoryId,
+            assetId: merged.assetId, liabilityId: merged.liabilityId,
+            amount: merged.amount, currency: merged.currency, description: merged.description, isActive: true,
+          });
+          await validateRuleReferences(client, rule);
+          merged.recurringRuleId = (await createRule(client, userId, rule)).id;
+        }
+        const input = transactionSchema.parse(merged) as TransactionWrite;
         const edited = requireRow(await editTransaction(client, id, input));
         if (Object.hasOwn(request.body, 'categoryId') && request.body.categoryId !== current.categoryId) {
           await client.query(`UPDATE transactions SET category_locked=true WHERE id=$1

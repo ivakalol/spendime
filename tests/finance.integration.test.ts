@@ -338,4 +338,31 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
       }
     }
   });
+  it('converts existing expenses to spread costs and regular payments without charging twice', async () => {
+    const account = (await agentA.post('/api/accounts').send({ name: 'Conversion test', kind: 'checking', currency: 'EUR', openingBalance: '200.20' }).expect(201)).body.data.id;
+    const expense = (await agentA.post('/api/transactions').send({ kind: 'expense', sourceAccountId: account, amount: '20.20', currency: 'EUR', occurredAt: '2026-01-31T12:00:00Z' }).expect(201)).body.data.id;
+    const balance = (await agentA.get(`/api/accounts/${account}`).expect(200)).body.data.currentBalance;
+    await agentA.patch(`/api/transactions/${expense}`).send({ method: 'amortized', amortizationStart: '2026-01-31', amortizationEnd: '2026-02-09' }).expect(200)
+      .expect(({ body }) => expect(body.data).toMatchObject({ method: 'amortized', dailyImpact: '2.020000' }));
+    const rulesBefore = (await agentA.get('/api/recurring-rules?includeInactive=true').expect(200)).body.data.length;
+    const paymentSchedule = { name: 'ChatGPT', intervalCount: 1, intervalUnit: 'month', startsOn: '2026-01-31', nextDueOn: '2026-02-28' };
+    await agentB.patch(`/api/transactions/${expense}`).send({ method: 'recurring', paymentSchedule }).expect(404);
+    // Invalid transaction dates must roll back the newly inserted schedule too.
+    await agentA.patch(`/api/transactions/${expense}`).send({ method: 'recurring', paymentSchedule }).expect(400);
+    expect((await agentA.get('/api/recurring-rules?includeInactive=true').expect(200)).body.data).toHaveLength(rulesBefore);
+    const conversion = { method: 'recurring', amortizationStart: null, amortizationEnd: null, paymentSchedule };
+    const recurring = (await agentA.patch(`/api/transactions/${expense}`).send(conversion).expect(200)).body.data;
+    expect(recurring.method).toBe('recurring');
+    expect(recurring.dailyImpact).toBeNull();
+    const rule = (await agentA.get(`/api/recurring-rules/${recurring.recurringRuleId}`).expect(200)).body.data;
+    expect(rule).toMatchObject({ name: 'ChatGPT', sourceAccountId: account, amount: '20.2000', nextDueOn: '2026-02-28', intervalUnit: 'month' });
+    await agentA.patch(`/api/transactions/${expense}`).send(conversion).expect(409);
+    expect((await agentA.get('/api/recurring-rules?includeInactive=true').expect(200)).body.data).toHaveLength(rulesBefore + 1);
+    expect((await agentA.get(`/api/accounts/${account}`).expect(200)).body.data.currentBalance).toBe(balance);
+    await agentA.patch(`/api/transactions/${expense}`).send({ method: 'standard', recurringRuleId: null }).expect(200);
+    expect((await agentA.get(`/api/recurring-rules/${rule.id}`).expect(200)).body.data.isActive).toBe(true);
+    await agentA.delete(`/api/transactions/${expense}`).expect(204);
+    await agentA.delete(`/api/recurring-rules/${rule.id}`).expect(204);
+  });
+
 });

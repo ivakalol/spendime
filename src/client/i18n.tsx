@@ -104,6 +104,13 @@ const bg: Record<string, string> = {
   'Off: your Month view keeps its current rolling 30-day window.': 'Изключено: месечният изглед запазва текущия подвижен 30-дневен период.',
   'Budget month · starts on day {day}': 'Бюджетен месец · започва на ден {day}',
   'Use device timezone': 'Използвай часовата зона на устройството',
+  'Expense type': 'Тип разход', 'Payment name': 'Име на плащането', 'Next payment': 'Следващо плащане',
+  'Regular payment': 'Редовно плащане',
+  'Use ends must be on or after use starts.': 'Краят на използването трябва да е на или след началото.',
+  'The next payment must be after this payment.': 'Следващото плащане трябва да е след това плащане.',
+  'This payment is already recorded. Create a reminder for future payments without charging your account again.': 'Това плащане вече е записано. Създайте напомняне за бъдещи плащания без повторно начисляване по сметката.',
+  'This transaction is linked to a regular payment. Manage its schedule in Regular payments.': 'Тази транзакция е свързана с редовно плащане. Управлявайте графика в Редовни плащания.',
+  'This change unlinks this transaction. Its regular payment schedule stays active; pause it in Regular payments if needed.': 'Тази промяна отделя транзакцията от графика. Графикът остава активен; при нужда го спрете в Редовни плащания.',
   'Filters': 'Филтри', 'Clear filters': 'Изчисти филтрите', 'Chart values': 'Стойности на диаграмата',
 };
 

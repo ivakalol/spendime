@@ -24,6 +24,15 @@ export function addCalendarDays(date: string, days: number): string {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
+export function addCalendarMonths(date: string, months: number): string {
+  const value = new Date(`${date}T12:00:00Z`);
+  const day = value.getUTCDate();
+  value.setUTCDate(1);
+  value.setUTCMonth(value.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + 1, 0)).getUTCDate();
+  value.setUTCDate(Math.min(day, lastDay));
+  return value.toISOString().slice(0, 10);
+}
 
 // Converts wall-clock form input in an IANA zone to an instant. This is presentation/input
 // plumbing only; authoritative reporting boundaries remain a backend responsibility.

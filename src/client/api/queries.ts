@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, jsonBody } from './client';
-import type { Account, AccountInput, ApiEnvelope, Asset, AssetContribution, AssetInput, AssetValuation, Category, CategoryInput, DashboardData, Liability, LiabilityInput, PagedEnvelope, RecurringInput, RecurringRule, Transaction, TransactionInput, User } from './types';
+import type { Account, AccountInput, ApiEnvelope, Asset, AssetContribution, AssetInput, AssetValuation, Category, CategoryInput, DashboardData, Liability, LiabilityInput, PagedEnvelope, RecurringInput, RecurringRule, Transaction, TransactionInput, TransactionUpdateInput, User } from './types';
 
 export const keys = {
   me: ['auth', 'me'] as const, accounts: ['accounts'] as const, categories: ['categories'] as const,
@@ -41,7 +41,7 @@ export const useArchiveCategory = () => useDomainMutation<string, void>((id) => 
 export const useRestoreCategory = (id: string) => useDomainMutation<void, Category>(`/api/categories/${id}/restore`, 'POST', [keys.categories]);
 export const usePermanentlyDeleteCategory = () => useDomainMutation<string, void>((id) => `/api/categories/${id}/permanent`, 'DELETE', [keys.categories, keys.transactions, keys.recurring, keys.dashboard, ['banking']]);
 export const useCreateTransaction = () => useDomainMutation<TransactionInput, Transaction>('/api/transactions', 'POST', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
-export const useUpdateTransaction = (id: string) => useDomainMutation<TransactionInput, Transaction>(`/api/transactions/${id}`, 'PATCH', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
+export const useUpdateTransaction = (id: string) => useDomainMutation<TransactionUpdateInput, Transaction>(`/api/transactions/${id}`, 'PATCH', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities, keys.recurring]);
 export const useVoidTransaction = () => useDomainMutation<string, void>((id) => `/api/transactions/${id}`, 'DELETE', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
 export const useCreateAsset = () => useDomainMutation<AssetInput, Asset>('/api/assets', 'POST', [keys.assets, keys.dashboard]);
 export const useArchiveAsset = () => useDomainMutation<string, void>((id) => `/api/assets/${id}`, 'DELETE', [keys.assets, keys.dashboard]);
