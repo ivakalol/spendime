@@ -10,10 +10,12 @@ export const positiveMoneySchema = z
   .transform((value) => value.replace(',', '.'));
 export const nonnegativeMoneySchema = z
   .string()
-  .regex(/^(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?$/, 'Use a nonnegative decimal string with at most 4 decimal places.');
+  .regex(/^(?:0|[1-9]\d{0,14})(?:[.,]\d{1,4})?$/, 'Enter a nonnegative amount with up to 4 decimal places, using a dot or comma.')
+  .transform((value) => value.replace(',', '.'));
 export const signedMoneySchema = z
   .string()
-  .regex(/^-?(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?$/, 'Use a decimal string with at most 4 decimal places.');
+  .regex(/^-?(?:0|[1-9]\d{0,14})(?:[.,]\d{1,4})?$/, 'Enter an amount with up to 4 decimal places, using a dot or comma.')
+  .transform((value) => value.replace(',', '.'));
 export const dateSchema = z.iso.date();
 export const timestampSchema = z.iso.datetime({ offset: true });
 export const booleanQuerySchema = z.enum(['true', 'false']).optional()
