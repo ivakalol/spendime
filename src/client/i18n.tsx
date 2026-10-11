@@ -112,6 +112,10 @@ const bg: Record<string, string> = {
   'This payment is already recorded. Create a reminder for future payments without charging your account again.': 'Това плащане вече е записано. Създайте напомняне за бъдещи плащания без повторно начисляване по сметката.',
   'This transaction is linked to a regular payment. Manage its schedule in Regular payments.': 'Тази транзакция е свързана с редовно плащане. Управлявайте графика в Редовни плащания.',
   'This change unlinks this transaction. Its regular payment schedule stays active; pause it in Regular payments if needed.': 'Тази промяна отделя транзакцията от графика. Графикът остава активен; при нужда го спрете в Редовни плащания.',
+  'Reorder categories': 'Подреди категориите', 'Done': 'Готово',
+  'Move {name} earlier': 'Премести {name} по-напред', 'Move {name} later': 'Премести {name} по-назад',
+  'Saving category order…': 'Запазване на реда на категориите…',
+  'Use the arrows to move categories earlier or later. Changes save automatically and apply to transaction category menus.': 'Използвайте стрелките, за да преместите категориите напред или назад. Промените се запазват автоматично и се прилагат в менютата за категории на транзакциите.',
   'Filters': 'Филтри', 'Clear filters': 'Изчисти филтрите', 'Chart values': 'Стойности на диаграмата',
 };
 

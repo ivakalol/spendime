@@ -10,17 +10,44 @@ const api=vi.hoisted(()=>vi.fn());
 vi.mock('../../src/client/api/client',()=>({apiRequest:api,jsonBody:(body:unknown)=>({body:JSON.stringify(body)})}));
 afterEach(()=>{cleanup();api.mockReset();vi.restoreAllMocks();});
 function mount(){
+  let categories=[
+    {id:'default',name:'Food',kind:'expense',color:'#123456',icon:null,isSystem:true,isArchived:false},
+    {id:'archived',name:'Sport',kind:'expense',color:'#123456',icon:null,isSystem:false,isArchived:true},
+  ];
   api.mockImplementation(async(path:string,options?:RequestInit)=>{
+    if(path==='/api/categories/order'){
+      const {ids}=JSON.parse(String(options?.body));
+      categories=ids.map((id:string)=>categories.find(item=>item.id===id)!);
+      return {data:categories};
+    }
     if(options?.method==='DELETE')return undefined;
     if(options?.method==='POST'||options?.method==='PATCH')return {data:{id:'default'}};
-    return {data:[
-      {id:'default',name:'Food',kind:'expense',color:'#123456',icon:null,isSystem:true,isArchived:false},
-      {id:'archived',name:'Sport',kind:'expense',color:'#123456',icon:null,isSystem:false,isArchived:true},
-    ]};
+    return {data:categories};
   });
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><LanguageProvider><CategoriesPage/></LanguageProvider></QueryClientProvider>);
 }
 describe('category management',()=>{
+  it('saves the chosen order and shows it after refreshing categories',async()=>{
+    mount();
+    await screen.findByRole('button',{name:'Edit Food'});
+    fireEvent.click(await screen.findByRole('button',{name:'Reorder categories'}));
+    expect(screen.getByRole('button',{name:'Move Food earlier'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Move Sport later'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'Move Food later'}));
+    await waitFor(()=>expect(api).toHaveBeenCalledWith('/api/categories/order',expect.objectContaining({method:'PATCH',body:JSON.stringify({ids:['archived','default']})})));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Move Sport earlier'})).toBeDisabled());
+    expect(screen.getByRole('button',{name:'Move Food later'})).toBeDisabled();
+  });
+  it('keeps the original order and displays an error when saving fails',async()=>{
+    mount();
+    await screen.findByRole('button',{name:'Edit Food'});
+    fireEvent.click(await screen.findByRole('button',{name:'Reorder categories'}));
+    api.mockRejectedValueOnce(new Error('Unable to save order'));
+    fireEvent.click(screen.getByRole('button',{name:'Move Food later'}));
+    expect(await screen.findByText('Unable to save order')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Move Food earlier'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Move Food later'})).toBeEnabled();
+  });
   it('allows editing default categories without the system lock',async()=>{
     mount();
     fireEvent.click(await screen.findByRole('button',{name:'Edit Food'}));

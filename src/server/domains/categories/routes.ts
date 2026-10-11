@@ -8,7 +8,7 @@ import { inUserTransaction, pickFields, requireRow } from '../../routes/helpers.
 import { booleanQuerySchema, uuidSchema } from '../../validation/common.js';
 import {
   archiveCategory, createCategory, getCategory, listCategories, updateCategory, restoreCategory, permanentlyDeleteCategory,
-  type CategoryWrite,
+  reorderCategories, type CategoryWrite,
 } from './repository.js';
 
 const categorySchema = z.object({
@@ -39,6 +39,16 @@ export function createCategoriesRouter(pool: pg.Pool): Router {
         createCategory(client, userId, input));
       response.status(201).json({ data });
     } catch (error) { translateDatabaseError(error); }
+  });
+  router.patch('/order', async (request, response) => {
+    const { ids } = z.object({ ids: z.array(uuidSchema) }).strict().parse(request.body);
+    const data = await inUserTransaction(pool, request, async (client, userId) => {
+      if (!await reorderCategories(client, userId, ids)) {
+        throw new ApiError(409, 'category_order_changed', 'Categories changed. Refresh and try ordering them again.');
+      }
+      return listCategories(client, true);
+    });
+    response.json({ data });
   });
   router.patch('/:id', async (request, response) => {
     const id = uuidSchema.parse(request.params.id);

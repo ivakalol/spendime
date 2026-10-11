@@ -85,6 +85,28 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     await agentA.get(`/api/accounts/${archiveId}`).expect(404);
   });
 
+  it('persists category ordering, appends new categories and rejects invalid or foreign orders', async () => {
+    const defaults = (await agentA.get('/api/categories?includeArchived=true').expect(200)).body.data.map((item:any)=>item.id);
+    const firstAdded = (await agentA.post('/api/categories').send({name:'First custom category',kind:'expense'}).expect(201)).body.data.id;
+    const original = (await agentA.get('/api/categories?includeArchived=true').expect(200)).body.data.map((item:any)=>item.id);
+    expect(original).toEqual([...defaults,firstAdded]);
+    const foreign = (await agentB.get('/api/categories?includeArchived=true').expect(200)).body.data.map((item:any)=>item.id);
+    const ordered = [...original].reverse();
+    await agentA.patch('/api/categories/order').send({ids:ordered}).expect(200);
+    expect((await agentA.get('/api/categories').expect(200)).body.data.map((item:any)=>item.id)).toEqual(ordered);
+    expect((await agentB.get('/api/categories').expect(200)).body.data.map((item:any)=>item.id)).toEqual(foreign);
+    await agentA.patch('/api/categories/order').send({ids:foreign}).expect(409);
+    await agentA.patch('/api/categories/order').send({ids:ordered.slice(1)}).expect(409);
+    await agentA.patch('/api/categories/order').send({ids:[ordered[0],...ordered.slice(0,-1)]}).expect(409);
+    expect((await agentA.get('/api/categories').expect(200)).body.data.map((item:any)=>item.id)).toEqual(ordered);
+    const added=(await agentA.post('/api/categories').send({name:'Order test',kind:'expense'}).expect(201)).body.data.id;
+    expect((await agentA.get('/api/categories').expect(200)).body.data.map((item:any)=>item.id)).toEqual([...ordered,added]);
+    await agentA.delete(`/api/categories/${ordered[0]}`).expect(204);
+    expect((await agentA.get('/api/categories?includeArchived=false').expect(200)).body.data.map((item:any)=>item.id)).toEqual([...ordered.slice(1),added]);
+    await agentA.post(`/api/categories/${ordered[0]}/restore`).expect(200);
+    expect((await agentA.get('/api/categories').expect(200)).body.data.map((item:any)=>item.id)).toEqual([...ordered,added]);
+  });
+
   it('customizes user-owned defaults and restores or deletes archived categories', async () => {
     const defaults = await agentA.get('/api/categories').expect(200);
     expect(defaults.body.data.some((category: any) => category.name === 'Food' && category.isSystem)).toBe(true);

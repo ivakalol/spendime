@@ -15,7 +15,7 @@ export interface CategoryWrite {
 export async function listCategories(client: pg.PoolClient, includeArchived: boolean): Promise<any[]> {
   const result = await client.query(
     `${CATEGORY_SELECT} WHERE ($1::boolean OR NOT is_archived)
-     ORDER BY is_system DESC, is_archived, name`,
+     ORDER BY sort_position ASC NULLS LAST, is_system DESC, is_archived, name, id`,
     [includeArchived],
   );
   return result.rows;
@@ -28,12 +28,31 @@ export async function getCategory(client: pg.PoolClient, id: string, lock = fals
 export async function createCategory(
   client: pg.PoolClient, userId: string, input: CategoryWrite,
 ): Promise<any> {
+  await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId]);
+  await client.query(`WITH pending AS (
+    SELECT id, row_number() OVER (ORDER BY is_system DESC, is_archived, name, id)
+      + COALESCE((SELECT max(sort_position) FROM categories), -1) AS position
+    FROM categories WHERE sort_position IS NULL
+  ) UPDATE categories c SET sort_position=p.position::integer FROM pending p WHERE c.id=p.id`);
   const result = await client.query<{ id: string }>(
-    `INSERT INTO categories (user_id, name, kind, color, icon)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    `INSERT INTO categories (user_id, name, kind, color, icon, sort_position)
+     SELECT $1, $2, $3, $4, $5, COALESCE(max(sort_position), -1) + 1
+     FROM categories RETURNING id`,
     [userId, input.name, input.kind, input.color, input.icon],
   );
   return getCategory(client, result.rows[0]!.id);
+}
+
+export async function reorderCategories(client: pg.PoolClient, userId: string, ids: string[]): Promise<boolean> {
+  await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId]);
+  const current = await client.query<{ id: string }>('SELECT id FROM categories ORDER BY id FOR UPDATE');
+  const requested = new Set(ids);
+  if (requested.size !== ids.length || current.rows.length !== ids.length ||
+      current.rows.some(row => !requested.has(row.id))) return false;
+  await client.query(`UPDATE categories c SET sort_position = ordered.position::integer - 1
+    FROM unnest($1::uuid[]) WITH ORDINALITY AS ordered(id, position)
+    WHERE c.id = ordered.id`, [ids]);
+  return true;
 }
 
 export async function updateCategory(

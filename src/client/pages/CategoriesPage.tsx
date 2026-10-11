@@ -1,15 +1,29 @@
-import { Archive, Pencil, Plus, RotateCcw, Shapes, Trash2 } from 'lucide-react';
+import { Archive, ArrowDown, ArrowUp, Pencil, Plus, RotateCcw, Shapes, Trash2 } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
-import { useArchiveCategory, useCategories, useCreateCategory, useUpdateCategory, useRestoreCategory, usePermanentlyDeleteCategory } from '../api/queries';
+import { useArchiveCategory, useCategories, useCreateCategory, useUpdateCategory, useRestoreCategory, usePermanentlyDeleteCategory, useReorderCategories } from '../api/queries';
+import { useLanguage } from '../i18n';
 import type { Category, CategoryInput } from '../api/types';
 import { Badge, Button, Card, EmptyState, ErrorState, Field, FormError, Input, LoadingState, Modal, PageHeader, Select } from '../components/ui';
 const blank:CategoryInput={name:'',kind:'expense',color:'#d06f4b',icon:null};
 
 export default function CategoriesPage(){
   const query=useCategories(true);
+  const reorder=useReorderCategories();
+  const {t}=useLanguage();
+  const [ordering,setOrdering]=useState(false);
   const [dialog,setDialog]=useState<{open:boolean;value:Category|null}>({open:false,value:null});
-  return <><PageHeader eyebrow="Organization" title="Categories" description="Categories answer: what was this money for? Default categories belong to you and can be renamed, customized or removed." action={<Button onClick={()=>setDialog({open:true,value:null})}><Plus className="size-4"/>Add category</Button>}/>
-    {query.isPending?<LoadingState/>:query.isError?<ErrorState error={query.error} retry={()=>query.refetch()}/>:query.data.length===0?<EmptyState icon={<Shapes/>} title="No categories" description="Create a category to make your spending breakdown more useful."/>:<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{query.data.map(item=><Card key={item.id} className={`card-lift flex items-center gap-3 p-4 sm:p-4 ${item.isArchived?'bg-brand/[.025]':''}`}><span className="size-3 shrink-0 rounded-full shadow-sm ring-4 ring-brand/[.035]" style={{backgroundColor:item.color??'#879392'}}/><div className="min-w-0 flex-1"><p className="break-words font-semibold">{item.name}</p><div className="mt-1.5 flex flex-wrap gap-1"><Badge>{item.kind}</Badge>{item.isSystem&&<Badge tone="info">Default</Badge>}{item.isArchived&&<Badge>Archived</Badge>}</div></div><button className="control-press grid size-11 shrink-0 place-items-center rounded-xl outline-none hover:bg-brand/[.06] focus-visible:ring-2 focus-visible:ring-accent active:scale-95" onClick={()=>setDialog({open:true,value:item})} aria-label={`${item.isArchived?'Manage':'Edit'} ${item.name}`}>{item.isArchived?<Archive className="size-4"/>:<Pencil className="size-4"/>}</button></Card>)}</div>}
+  const move=(index:number,direction:number)=>{
+    if(reorder.isPending||!query.data)return;
+    const ids=query.data.map(item=>item.id);
+    const target=index+direction;
+    if(target<0||target>=ids.length)return;
+    [ids[index],ids[target]]=[ids[target]!,ids[index]!];
+    reorder.mutate({ids});
+  };
+  return <><PageHeader eyebrow="Organization" title="Categories" description="Categories answer: what was this money for? Default categories belong to you and can be renamed, customized or removed." action={<div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={!query.data?.length||reorder.isPending} onClick={()=>setOrdering(!ordering)}>{ordering?'Done':'Reorder categories'}</Button><Button onClick={()=>setDialog({open:true,value:null})}><Plus className="size-4"/>Add category</Button></div>}/>
+    {ordering&&<p className="mb-4 text-sm text-muted" role="status">{t(reorder.isPending?'Saving category order…':'Use the arrows to move categories earlier or later. Changes save automatically and apply to transaction category menus.')}</p>}
+    <FormError error={reorder.error}/>
+    {query.isPending?<LoadingState/>:query.isError?<ErrorState error={query.error} retry={()=>query.refetch()}/>:query.data.length===0?<EmptyState icon={<Shapes/>} title="No categories" description="Create a category to make your spending breakdown more useful."/>:<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{query.data.map((item,index)=><Card key={item.id} className={`card-lift flex items-center gap-3 p-4 sm:p-4 ${item.isArchived?'bg-brand/[.025]':''}`}><span className="size-3 shrink-0 rounded-full shadow-sm ring-4 ring-brand/[.035]" style={{backgroundColor:item.color??'#879392'}}/><div className="min-w-0 flex-1"><p className="break-words font-semibold">{item.name}</p><div className="mt-1.5 flex flex-wrap gap-1"><Badge>{item.kind}</Badge>{item.isSystem&&<Badge tone="info">Default</Badge>}{item.isArchived&&<Badge>Archived</Badge>}</div></div>{ordering?<div className="flex shrink-0 gap-1"><Button variant="ghost" className="px-2" disabled={index===0||reorder.isPending} aria-label={t('Move {name} earlier',{name:item.name})} onClick={()=>move(index,-1)}><ArrowUp className="size-4"/></Button><Button variant="ghost" className="px-2" disabled={index===query.data.length-1||reorder.isPending} aria-label={t('Move {name} later',{name:item.name})} onClick={()=>move(index,1)}><ArrowDown className="size-4"/></Button></div>:<button className="control-press grid size-11 shrink-0 place-items-center rounded-xl outline-none hover:bg-brand/[.06] focus-visible:ring-2 focus-visible:ring-accent active:scale-95" onClick={()=>setDialog({open:true,value:item})} aria-label={`${item.isArchived?'Manage':'Edit'} ${item.name}`}>{item.isArchived?<Archive className="size-4"/>:<Pencil className="size-4"/>}</button>}</Card>)}</div>}
     <CategoryDialog {...dialog} onClose={()=>setDialog({open:false,value:null})}/></>;
 }
 function CategoryDialog({open,value,onClose}:{open:boolean;value:Category|null;onClose:()=>void}){

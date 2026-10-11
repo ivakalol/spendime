@@ -36,6 +36,7 @@ export const useArchiveAccount = () => useDomainMutation<string, void>((id) => `
 export const useRestoreAccount = (id: string) => useDomainMutation<void, Account>(`/api/accounts/${id}/restore`, 'POST', [keys.accounts, keys.dashboard]);
 export const usePermanentlyDeleteAccount = () => useDomainMutation<string, void>((id) => `/api/accounts/${id}/permanent`, 'DELETE', [keys.accounts, keys.dashboard]);
 export const useCreateCategory = () => useDomainMutation<CategoryInput, Category>('/api/categories', 'POST', [keys.categories]);
+export const useReorderCategories = () => useDomainMutation<{ ids: string[] }, Category[]>('/api/categories/order', 'PATCH', [keys.categories]);
 export const useUpdateCategory = (id: string) => useDomainMutation<CategoryInput, Category>(`/api/categories/${id}`, 'PATCH', [keys.categories, keys.transactions, keys.dashboard]);
 export const useArchiveCategory = () => useDomainMutation<string, void>((id) => `/api/categories/${id}`, 'DELETE', [keys.categories, keys.transactions]);
 export const useRestoreCategory = (id: string) => useDomainMutation<void, Category>(`/api/categories/${id}/restore`, 'POST', [keys.categories]);

@@ -225,6 +225,14 @@ For Bash, redirect each SQL file into the same `docker compose exec -T` command.
 Fresh Compose installations mount and run both migrations automatically.
 
 
+Existing installations must apply `database/init/010_category_order.sql` before
+deploying category ordering. It preserves the current category order and adds
+per-user saved positions. Fresh databases run it automatically.
+
+```powershell
+Get-Content -Raw database/init/010_category_order.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
+```
+
 ## Completely reset the development database
 
 This permanently deletes every database record in the named volume and reruns
