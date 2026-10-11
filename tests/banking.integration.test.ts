@@ -223,6 +223,18 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await syncConnection(pool,bank,secrets,userA,connectionId,true);
     const corrected=await a.get(`/api/transactions/${txId}`).expect(200);
     expect(corrected.body.data).toMatchObject({categoryId,categoryLocked:true,description:'Corrected taxi note'});
+    const cash = (await a.post('/api/accounts').send({ name: 'Withdrawal cash', kind: 'cash', currency: 'EUR', openingBalance: '0.00' }).expect(201)).body.data.id;
+    const source = corrected.body.data.sourceAccountId;
+    const sourceBalance = (await a.get(`/api/accounts/${source}`).expect(200)).body.data.currentBalance;
+    await a.patch(`/api/transactions/${txId}`).send({ kind: 'transfer', method: 'standard', destinationAccountId: cash, categoryId: null }).expect(200)
+      .expect(({body})=>expect(body.data).toMatchObject({ kind: 'transfer', sourceAccountId: source, destinationAccountId: cash, bankSynced: true }));
+    await syncConnection(pool,bank,secrets,userA,connectionId,true);
+    const transfer = (await a.get(`/api/transactions/${txId}`).expect(200)).body.data;
+    expect(transfer).toMatchObject({ kind: 'transfer', destinationAccountId: cash, amount: '7.0000', bankSynced: true });
+    expect((await a.get(`/api/accounts/${source}`).expect(200)).body.data.currentBalance).toBe(sourceBalance);
+    expect((await a.get(`/api/accounts/${cash}`).expect(200)).body.data.currentBalance).toBe('7.0000');
+    const expenses = (await a.get(`/api/transactions?kind=expense&accountId=${source}&limit=100`).expect(200)).body.data;
+    expect(expenses.some((item:any)=>item.id===txId)).toBe(false);
   });
 
   it('keeps a second connected institution separate for the same user',async()=>{

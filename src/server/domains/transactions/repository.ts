@@ -100,13 +100,13 @@ export async function updateTransaction(
        method = $2, source_account_id = $3, destination_account_id = $4,
        category_id = $5, asset_id = $6, liability_id = $7, recurring_rule_id = $8,
        amount = $9, currency = $10, occurred_at = $11, description = $12,
-       merchant = $13, amortization_start = $14, amortization_end = $15
+       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16
      WHERE id = $1 AND voided_at IS NULL RETURNING id`,
     [
       id, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd,
+      input.amortizationStart, input.amortizationEnd, input.kind,
     ],
   );
   return result.rows[0] ? getTransaction(client, id) : undefined;

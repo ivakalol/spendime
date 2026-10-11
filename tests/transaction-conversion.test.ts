@@ -59,4 +59,13 @@ describe('transaction conversion API', () => {
     expect(mocks.edit).toHaveBeenCalledWith(client, id, expect.objectContaining({ method: 'amortized', recurringRuleId: null }));
     expect(mocks.createRule).not.toHaveBeenCalled();
   });
+  it('accepts conversion to a transfer with two different accounts', async () => {
+    const destinationAccountId = '00000000-0000-4000-8000-000000000004';
+    await request(app).patch(`/transactions/${id}`).send({ kind: 'transfer', method: 'standard', destinationAccountId, categoryId: null }).expect(200);
+    expect(mocks.edit).toHaveBeenCalledWith(client, id, expect.objectContaining({ kind: 'transfer', sourceAccountId: accountId, destinationAccountId }));
+  });
+  it.each([null, accountId])('rejects a transfer with a missing or identical destination: %s', async destinationAccountId => {
+    await request(app).patch(`/transactions/${id}`).send({ kind: 'transfer', destinationAccountId }).expect(400);
+    expect(mocks.edit).not.toHaveBeenCalled();
+  });
 });

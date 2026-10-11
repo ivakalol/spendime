@@ -78,8 +78,20 @@ export async function editTransaction(
   const current = await getTransaction(client, id);
   if (!current) return undefined;
   if (current.voidedAt) throw new ApiError(409, 'transaction_voided', 'A voided transaction cannot be edited.');
-  if (current.kind !== input.kind) {
+  const convertingToTransfer = current.kind === 'expense' && input.kind === 'transfer';
+  if (current.kind !== input.kind && !convertingToTransfer) {
     throw new ApiError(409, 'immutable_transaction_kind', 'Transaction kind cannot be changed.');
+  }
+  if (convertingToTransfer) {
+    if (input.method !== 'standard' || input.categoryId || input.assetId || input.liabilityId || input.recurringRuleId || input.amortizationStart || input.amortizationEnd) {
+      throw new ApiError(400, 'invalid_transfer_conversion', 'A transfer cannot retain expense categories, schedules or spread-cost dates.');
+    }
+    const refunds = await client.query(`SELECT 1 FROM bank_refund_links r
+      JOIN transactions t ON t.id=r.refund_transaction_id
+      WHERE r.original_transaction_id=$1 AND t.voided_at IS NULL LIMIT 1`, [id]);
+    if (refunds.rows.length) {
+      throw new ApiError(409, 'expense_has_refunds', 'An expense with linked refunds cannot become a transfer.');
+    }
   }
   if (current.kind === 'asset_purchase' && current.assetId !== input.assetId) {
     throw new ApiError(409, 'immutable_asset_reference', 'The purchased asset cannot be changed.');

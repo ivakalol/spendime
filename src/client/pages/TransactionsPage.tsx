@@ -108,15 +108,24 @@ export function TransactionDialog({ transaction, accounts, categories, timezone,
   const categoryOptions = categories.filter((item) =>
     (!item.isArchived || item.id === transaction.categoryId) &&
     (item.kind === 'both' || item.kind === categoryKind));
-  const invalidTransfer = form.kind === 'transfer' && form.sourceAccountId === form.destinationAccountId;
+  const invalidTransfer = form.kind === 'transfer' && (!form.sourceAccountId || !form.destinationAccountId || form.sourceAccountId === form.destinationAccountId);
   const newRegularPayment = form.method === 'recurring' && !transaction.recurringRuleId;
   const invalidDates = form.method === 'amortized' && (!form.amortizationStart || !form.amortizationEnd || form.amortizationEnd < form.amortizationStart);
   const invalidSchedule = newRegularPayment && (!schedule?.name.trim() || !schedule.nextDueOn || schedule.nextDueOn <= when.slice(0, 10));
   const changeMethod = (method: TransactionMethod) => {
     const date = when.slice(0, 10);
-    setForm({ ...form, method, recurringRuleId: method === 'recurring' ? transaction.recurringRuleId : null,
+    setForm({ ...form, kind: transaction.kind === 'expense' ? 'expense' : form.kind, method,
+      destinationAccountId: transaction.kind === 'expense' ? null : form.destinationAccountId,
+      categoryId: form.kind === 'transfer' ? transaction.categoryId : form.categoryId,
+      recurringRuleId: method === 'recurring' ? transaction.recurringRuleId : null,
       amortizationStart: method === 'amortized' ? form.amortizationStart || date : null,
       amortizationEnd: method === 'amortized' ? form.amortizationEnd || addCalendarDays(date, 29) : null });
+  };
+  const changeExpenseType = (value: string) => {
+    if (value !== 'transfer') { changeMethod(value as TransactionMethod); return; }
+    setForm({ ...form, kind: 'transfer', method: 'standard', destinationAccountId: null,
+      categoryId: null, assetId: null, liabilityId: null, recurringRuleId: null,
+      amortizationStart: null, amortizationEnd: null });
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -129,12 +138,13 @@ export function TransactionDialog({ transaction, accounts, categories, timezone,
   return <Modal open closeDisabled={update.isPending} title="Edit transaction" description="Account changes automatically reverse the old balance effect and apply it to the new account." onClose={onClose}>
     <form className="grid gap-4" onSubmit={submit}>
       <div className="flex items-center justify-between rounded-2xl bg-brand/[.06] px-3 py-2 text-sm"><span className="font-semibold capitalize">{form.kind.replaceAll('_', ' ')}</span><Badge>{form.currency}</Badge></div>
-      {form.kind === 'expense' && <Field label="Expense type"><Select value={form.method} onChange={event => changeMethod(event.target.value as TransactionMethod)} disabled={update.isPending}>
-        <option value="standard">Expense</option><option value="amortized">Spread cost</option><option value="recurring">Regular payment</option>
+      {transaction.kind === 'expense' && <Field label="Expense type"><Select value={form.kind === 'transfer' ? 'transfer' : form.method} onChange={event => changeExpenseType(event.target.value)} disabled={update.isPending}>
+        <option value="standard">Expense</option><option value="amortized">Spread cost</option><option value="recurring">Regular payment</option><option value="transfer">Transfer</option>
       </Select></Field>}
+      {form.kind === 'transfer' && transaction.kind === 'expense' && <p className="text-sm text-muted">{t('Choose the account that received this money, including cash for a withdrawal. Transfers between accounts in the same currency are excluded from spending. If both sides were imported, use Pair your own transfers.')}</p>}
       <Field label="Amount"><Input inputMode="decimal" pattern="\d+([.,]\d{1,4})?" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></Field>
       {hasSource && <Field label={form.kind === 'transfer' ? 'From account' : 'Paid from'}><Select value={form.sourceAccountId ?? ''} onChange={(event) => setForm({ ...form, sourceAccountId: event.target.value })} required><option value="">Choose account</option>{accountOptions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isArchived ? ' · archived' : ''}</option>)}</Select></Field>}
-      {hasDestination && <Field label={form.kind === 'transfer' ? 'To account' : 'Received into'} error={invalidTransfer ? 'Choose two different accounts.' : undefined}><Select value={form.destinationAccountId ?? ''} onChange={(event) => setForm({ ...form, destinationAccountId: event.target.value })} required><option value="">Choose account</option>{accountOptions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isArchived ? ' · archived' : ''}</option>)}</Select></Field>}
+      {hasDestination && <Field label={form.kind === 'transfer' ? 'To account' : 'Received into'} error={invalidTransfer ? 'Choose two different accounts.' : undefined}><Select value={form.destinationAccountId ?? ''} onChange={(event) => setForm({ ...form, destinationAccountId: event.target.value })} required><option value="">Choose account</option>{accountOptions.filter(item => form.kind !== 'transfer' || item.id !== form.sourceAccountId).map((item) => <option key={item.id} value={item.id}>{item.name}{item.isArchived ? ' · archived' : ''}</option>)}</Select></Field>}
       {form.kind !== 'transfer' && <Field label="Category" hint="What kind of spending or income was this?"><Select value={form.categoryId ?? ''} onChange={(event) => setForm({ ...form, categoryId: event.target.value || null })}><option value="">Uncategorized</option>{categoryOptions.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isArchived ? ' · archived' : ''}</option>)}</Select></Field>}
       <Field label={`${t('Date & time')} · ${timezone}`}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
       {form.method === 'amortized' && <div className="rounded-2xl bg-amber-50 p-4"><p className="mb-3 text-sm text-muted">{t('Your balance and spending include the full price today. The daily cost is also spread over the days you use it.')}</p><div className="grid grid-cols-2 gap-3"><Field label="Use starts"><Input type="date" value={form.amortizationStart ?? ''} onChange={(event) => setForm({ ...form, amortizationStart: event.target.value })} required /></Field><Field label="Use ends" error={invalidDates ? 'Use ends must be on or after use starts.' : undefined}><Input type="date" min={form.amortizationStart ?? undefined} value={form.amortizationEnd ?? ''} onChange={(event) => setForm({ ...form, amortizationEnd: event.target.value })} required /></Field></div></div>}

@@ -12,7 +12,7 @@ const transaction: Transaction = { id: 't', kind: 'expense', method: 'standard',
 function setup(overrides: Partial<Transaction> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: transaction }), { status: 200 }));
-  render(<QueryClientProvider client={client}><TransactionDialog transaction={{ ...transaction, ...overrides }} accounts={[account]} categories={[]} timezone="Europe/Sofia" onClose={vi.fn()} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><TransactionDialog transaction={{ ...transaction, ...overrides }} accounts={[account, { ...account, id: 'cash', name: 'Cash', kind: 'cash' }, { ...account, id: 'usd', name: 'USD account', currency: 'USD' }]} categories={[]} timezone="Europe/Sofia" onClose={vi.fn()} /></QueryClientProvider>);
   return fetchMock;
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -24,6 +24,34 @@ async function save(fetchMock: ReturnType<typeof setup>) {
   return JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
 }
 describe('editing expense treatment', () => {
+  it('turns a bank withdrawal into a transfer to cash', async () => {
+    const fetchMock = setup({ categoryId: 'food', description: 'Cash withdrawal' });
+    await userEvent.selectOptions(screen.getByLabelText('Expense type'), 'transfer');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.queryByLabelText(/^Category/)).not.toBeInTheDocument();
+    const destination = screen.getByLabelText(/^To account/);
+    expect(destination).not.toHaveTextContent('Revolut');
+    expect(destination).not.toHaveTextContent('USD account');
+    await userEvent.selectOptions(destination, 'cash');
+    expect(await save(fetchMock)).toMatchObject({ kind: 'transfer', method: 'standard', amount: '20.00', sourceAccountId: 'a', destinationAccountId: 'cash', categoryId: null, recurringRuleId: null, amortizationStart: null, amortizationEnd: null });
+  });
+  it('clears spread dates and schedule links when switching to transfer', async () => {
+    const fetchMock = setup({ method: 'amortized', amortizationStart: '2026-01-31', amortizationEnd: '2026-03-01' });
+    await userEvent.selectOptions(screen.getByLabelText('Expense type'), 'transfer');
+    expect(screen.queryByLabelText('Use starts')).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText(/^To account/), 'cash');
+    const body = await save(fetchMock);
+    expect(body.amortizationStart).toBeNull();
+    expect(body.amortizationEnd).toBeNull();
+    expect(body.paymentSchedule).toBeUndefined();
+  });
+  it('lets the user switch back to expense before saving', async () => {
+    const fetchMock = setup();
+    await userEvent.selectOptions(screen.getByLabelText('Expense type'), 'transfer');
+    await userEvent.selectOptions(screen.getByLabelText('Expense type'), 'standard');
+    expect(screen.queryByLabelText(/^To account/)).not.toBeInTheDocument();
+    expect(await save(fetchMock)).toMatchObject({ kind: 'expense', destinationAccountId: null });
+  });
   it('converts a bank expense to spread cost while keeping its amount and account', async () => {
     const fetchMock = setup();
     await userEvent.selectOptions(screen.getByLabelText('Expense type'), 'amortized');

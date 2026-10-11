@@ -41,7 +41,7 @@ export const useArchiveCategory = () => useDomainMutation<string, void>((id) => 
 export const useRestoreCategory = (id: string) => useDomainMutation<void, Category>(`/api/categories/${id}/restore`, 'POST', [keys.categories]);
 export const usePermanentlyDeleteCategory = () => useDomainMutation<string, void>((id) => `/api/categories/${id}/permanent`, 'DELETE', [keys.categories, keys.transactions, keys.recurring, keys.dashboard, ['banking']]);
 export const useCreateTransaction = () => useDomainMutation<TransactionInput, Transaction>('/api/transactions', 'POST', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
-export const useUpdateTransaction = (id: string) => useDomainMutation<TransactionUpdateInput, Transaction>(`/api/transactions/${id}`, 'PATCH', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities, keys.recurring]);
+export const useUpdateTransaction = (id: string) => useDomainMutation<TransactionUpdateInput, Transaction>(`/api/transactions/${id}`, 'PATCH', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities, keys.recurring, ['banking']]);
 export const useVoidTransaction = () => useDomainMutation<string, void>((id) => `/api/transactions/${id}`, 'DELETE', [keys.transactions, keys.accounts, keys.dashboard, keys.assets, keys.liabilities]);
 export const useCreateAsset = () => useDomainMutation<AssetInput, Asset>('/api/assets', 'POST', [keys.assets, keys.dashboard]);
 export const useArchiveAsset = () => useDomainMutation<string, void>((id) => `/api/assets/${id}`, 'DELETE', [keys.assets, keys.dashboard]);

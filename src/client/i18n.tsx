@@ -105,6 +105,7 @@ const bg: Record<string, string> = {
   'Budget month · starts on day {day}': 'Бюджетен месец · започва на ден {day}',
   'Use device timezone': 'Използвай часовата зона на устройството',
   'Expense type': 'Тип разход', 'Payment name': 'Име на плащането', 'Next payment': 'Следващо плащане',
+  'Choose the account that received this money, including cash for a withdrawal. Transfers between accounts in the same currency are excluded from spending. If both sides were imported, use Pair your own transfers.': 'Изберете сметката, която е получила парите, включително пари в брой при теглене. Преводите между сметки в една валута не се включват в разходите. Ако и двете страни са импортирани, използвайте Сдвои собствените преводи.',
   'Regular payment': 'Редовно плащане',
   'Use ends must be on or after use starts.': 'Краят на използването трябва да е на или след началото.',
   'The next payment must be after this payment.': 'Следващото плащане трябва да е след това плащане.',
