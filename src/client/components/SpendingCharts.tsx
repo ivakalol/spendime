@@ -89,6 +89,7 @@ export function SpendingTrend({ data, currency, period }: { data: DashboardData;
     const exactSpending=unscaled(value.spending),exactIncome=unscaled(value.income),exactCost=unscaled(value.cost);
     rows.push({date:day,spending:Number(exactSpending),income:Number(exactIncome),cost:Number(exactCost),exactSpending,exactIncome,exactCost});
   }
+  rows.sort((a,b)=>a.date.localeCompare(b.date));
   const series=[
     {key:'spending' as const,label:'Spending',color:'#c27647'},
     {key:'income' as const,label:'Income',color:'#205b50'},
@@ -108,11 +109,11 @@ export function SpendingTrend({ data, currency, period }: { data: DashboardData;
     <p className="mt-3 text-xs leading-relaxed text-muted">Actual spending is recorded on the purchase date. Cost spread over use days distributes amortized purchases across their use period.</p>
     {meaningfulKeys.length ? <>
       <div className="mt-4 h-56 sm:mt-6 sm:h-64" role="img" aria-label={`${t('Selected trends')} over time in ${currency}; values available in the table below.`}>
-        <ResponsiveContainer><AreaChart data={rows} margin={{left:0,right:12}}>
+        <ResponsiveContainer><AreaChart data={rows} margin={{top:12,bottom:12,left:0,right:12}}>
           <CartesianGrid vertical={false} stroke="#e2e5df"/>
-          <XAxis dataKey="date" tickFormatter={value=>monthly?value.slice(0,7):value.slice(5)} tick={{fontSize:11}} minTickGap={24}/>
+          <XAxis dataKey="date" padding={{right:30}} tickFormatter={value=>monthly?value.slice(0,7):value.slice(5)} tick={{fontSize:11}} minTickGap={24}/>
           <YAxis width={45} tick={{fontSize:11}}/>
-          <Tooltip formatter={(_,key,entry)=>[formatMoney(entry.dataKey==='spending'?entry.payload.exactSpending:entry.dataKey==='income'?entry.payload.exactIncome:entry.payload.exactCost,currency),key]}/>
+          <Tooltip allowEscapeViewBox={{x:false,y:false}} formatter={(_,key,entry)=>[formatMoney(entry.dataKey==='spending'?entry.payload.exactSpending:entry.dataKey==='income'?entry.payload.exactIncome:entry.payload.exactCost,currency),key]}/>
           {visible.income&&<Area type="linear" dataKey="income" name={t('Income')} stroke="#205b50" fill="#205b50" fillOpacity={.06} strokeDasharray="4 3" dot={rows.length===1}/>}
           {visible.spending&&<Area type="linear" dataKey="spending" name={t('Spending')} stroke="#c27647" fill="#c27647" fillOpacity={.12} dot={rows.length===1}/>}
           {visible.cost&&<Area type="linear" dataKey="cost" name={t('Cost spread over use days')} stroke="#8f6bb3" fill="#8f6bb3" fillOpacity={.06} strokeDasharray="5 4" dot={rows.length===1}/>}
