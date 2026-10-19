@@ -8,8 +8,8 @@ import { QuickAdd } from '../features/QuickAdd';
 import { useLanguage } from '../i18n';
 import { Button, FormError, Modal } from './ui';
 
-const primary = [{ to: '/', label: 'Home', icon: LayoutDashboard, end: true }, { to: '/transactions', label: 'Transactions', icon: ReceiptText }, { to: '/accounts', label: 'Accounts', icon: WalletCards }];
-const secondary = [{ to: '/assets', label: 'Assets', icon: BarChart3 }, { to: '/banking', label: 'Banking', icon: Landmark }, { to: '/liabilities', label: 'Debts & loans', icon: Landmark }, { to: '/recurring', label: 'Regular payments', icon: CalendarClock }, { to: '/categories', label: 'Categories', icon: Shapes }, { to: '/settings', label: 'Settings', icon: Settings }];
+const primary = [{ to: '/app', label: 'Home', icon: LayoutDashboard, end: true }, { to: '/app/transactions', label: 'Transactions', icon: ReceiptText }, { to: '/app/accounts', label: 'Accounts', icon: WalletCards }];
+const secondary = [{ to: '/app/assets', label: 'Assets', icon: BarChart3 }, { to: '/app/banking', label: 'Banking', icon: Landmark }, { to: '/app/liabilities', label: 'Debts & loans', icon: Landmark }, { to: '/app/recurring', label: 'Regular payments', icon: CalendarClock }, { to: '/app/categories', label: 'Categories', icon: Shapes }, { to: '/app/settings', label: 'Settings', icon: Settings }];
 type NavigationItem = (typeof primary)[number] | (typeof secondary)[number];
 
 function NavItem({ item, onClick, light = false }: { item: NavigationItem; onClick?: () => void; light?: boolean }) {
@@ -31,7 +31,7 @@ export function AppShell() {
   const requestLogout = () => { logout.reset(); setMore(false); setConfirmLogout(true); };
   const closeLogout = () => { if (!logout.isPending) setConfirmLogout(false); };
 
-  const visibleSecondary = secondary.filter((item) => item.to !== '/banking' || me.data?.bankingAccess);
+  const visibleSecondary = secondary.filter((item) => item.to !== '/app/banking' || me.data?.bankingAccess);
   return <div className="min-h-dvh lg:grid lg:grid-cols-[268px_1fr]">
     <aside className="app-sidebar fixed inset-y-0 left-0 hidden w-[268px] flex-col overflow-hidden bg-brand px-4 safe-top safe-bottom lg:flex">
       <div aria-hidden="true" className="pointer-events-none absolute -right-28 -top-20 size-72 rounded-full border border-white/[.06] bg-white/[.025]" />

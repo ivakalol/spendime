@@ -291,3 +291,17 @@ main [class~="flex"] > div { min-width: 0; }
   .page-header { row-gap: .875rem; margin-bottom: 1.25rem; }
   .transaction-filter-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Public legal reading layout; authenticated screens keep their existing styles. */
+@media (max-width: 700px) {
+  .sp-legal-page > div > header { align-items: flex-start; gap: 14px; margin-bottom: 26px; }
+  .sp-legal-page header nav { width: 100%; gap: 6px 18px; font-size: 13px; }
+  .sp-legal-page header nav a { display: inline-flex; align-items: center; min-height: 44px; }
+  .sp-legal-page article { font-size: 15px; line-height: 1.85; }
+  .sp-legal-page article h2 { font-size: 20px; line-height: 1.35; }
+  .sp-legal-page article a { overflow-wrap: anywhere; }
+  .sp-legal-page article ul { margin-left: 18px; }
+  .sp-legal-page article li + li { margin-top: 10px; }
+  .sp-legal-page footer { font-size: 12px; line-height: 1.8; }
+  .sp-legal-page footer a { display: inline-flex; align-items: center; min-height: 44px; }
+}

@@ -10,7 +10,7 @@ function LegalLayout({ title, children }: { title: string; children: React.React
     document.title = `${title} · Spendime`;
     return () => { document.title = previous; };
   }, [title]);
-  return <div className="min-h-dvh px-4 pb-10 safe-top sm:px-6">
+  return <div className="sp-legal-page min-h-dvh px-4 pb-10 safe-top sm:px-6">
     <div className="mx-auto max-w-3xl">
       <header className="mb-8 flex flex-wrap items-center justify-between gap-3 pt-6">
         <Link to="/" className="text-xl font-bold tracking-tight text-brand hover:text-accent">Spendime</Link>

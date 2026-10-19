@@ -22,3 +22,5 @@ Documentation:
 - `docs/authentication.md`
 - `docs/api.md`
 - `docs/frontend.md`
+- `docs/public-site-audit.md`
+- `docs/public-website.md`

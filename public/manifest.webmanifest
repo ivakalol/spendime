@@ -6,7 +6,8 @@
   "background_color": "#f5f3ec",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "start_url": "/",
+  "id": "/",
+  "start_url": "/app",
   "scope": "/",
   "categories": ["finance", "productivity"],
   "icons": [

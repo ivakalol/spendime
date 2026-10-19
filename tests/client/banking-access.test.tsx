@@ -30,7 +30,7 @@ describe('owner-only banking navigation',()=>{
   it('redirects a direct banking route for an ordinary user',async()=>{
     state.bankingAccess=false;state.bankingEnabled=false;
     wrap(<Routes><Route path="/banking" element={<BankingRoute><div>Secret banking page</div></BankingRoute>}/>
-      <Route path="/" element={<div>Dashboard</div>}/></Routes>,'/banking');
+      <Route path="/app" element={<div>Dashboard</div>}/></Routes>,'/banking');
     await waitFor(()=>expect(screen.getByText('Dashboard')).toBeInTheDocument());
     expect(screen.queryByText('Secret banking page')).not.toBeInTheDocument();
   });

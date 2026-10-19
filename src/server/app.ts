@@ -19,6 +19,8 @@ import { createBankingRouter } from './domains/banking/routes.js';
 import { EnableBankingProvider } from './domains/banking/enableBanking.js';
 import type { BankingProvider } from './domains/banking/provider.js';
 import { BankingSecrets } from './domains/banking/secrets.js';
+import { isKnownPage, legacyAppDestination, publicSitemap, renderPageHtml } from './publicSite.js';
+import { pageMetadata } from '../shared/publicSite.js';
 
 export const CACHE_CONTROL = {
   revalidate: 'no-cache, no-store, must-revalidate',
@@ -87,6 +89,22 @@ export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: Ba
 
   const clientRoot = path.resolve(process.cwd(), 'dist/client');
   if (config.nodeEnv === 'production' && existsSync(path.join(clientRoot, 'index.html'))) {
+    const htmlShell = readFileSync(path.join(clientRoot, 'index.html'), 'utf8');
+    app.get('/sitemap.xml', (_request, response) => {
+      response.type('application/xml').setHeader('Cache-Control', 'public, max-age=3600');
+      response.send(publicSitemap());
+    });
+    app.use((request, response, next) => {
+      if (request.method !== 'GET' && request.method !== 'HEAD') return next();
+      const search = request.originalUrl.includes('?') ? request.originalUrl.slice(request.originalUrl.indexOf('?')) : '';
+      const destination = legacyAppDestination(request.path, search);
+      if (destination) { response.redirect(308, destination); return; }
+      // Route-specific HTML is also returned to social crawlers without JavaScript.
+      if (request.path === '/index.html') {
+        response.redirect(308, `/${search}`); return;
+      }
+      next();
+    });
     app.use('/assets', express.static(path.join(clientRoot, 'assets'), {
       immutable: true,
       maxAge: '1y',
@@ -97,10 +115,12 @@ export function createApp(pool: pg.Pool, config: AppConfig, bankingProvider?: Ba
       setHeaders: setClientStaticHeaders,
     }));
     app.use((request, response, next) => {
-      if (request.method === 'GET' && request.accepts('html') &&
-          !request.path.startsWith('/api/') && request.path !== '/health') {
+      if ((request.method === 'GET' || request.method === 'HEAD') && request.accepts('html') &&
+          request.path !== '/api' && !request.path.startsWith('/api/') && request.path !== '/health' &&
+          !/\.[a-z0-9]+$/i.test(request.path)) {
         setRevalidationHeaders(response);
-        response.sendFile(path.join(clientRoot, 'index.html'));
+        if (!pageMetadata(request.path).index) response.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        response.status(isKnownPage(request.path) ? 200 : 404).type('html').send(renderPageHtml(htmlShell, request.path));
         return;
       }
       next();

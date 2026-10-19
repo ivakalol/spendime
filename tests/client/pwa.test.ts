@@ -4,6 +4,11 @@ describe('PWA security configuration',()=>{
   const source=readFileSync('vite.config.ts','utf8');
   const registration=readFileSync('src/client/components/PwaStatus.tsx','utf8');
   const migration=readFileSync('public/sw-cache-migration.js','utf8');
+  it('launches the app while preserving the original install identity and root scope',()=>{
+    const manifest=JSON.parse(readFileSync('public/manifest.webmanifest','utf8'));
+    expect(manifest.id).toBe('/');expect(manifest.start_url).toBe('/app');expect(manifest.scope).toBe('/');
+    expect(readFileSync('public/robots.txt','utf8')).not.toContain('Disallow: /assets');
+  });
   it('automatically activates updates and keeps APIs network-only',()=>{
     expect(source).toContain("registerType: 'autoUpdate'");
     expect(source).toContain('skipWaiting: true');

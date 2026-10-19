@@ -1,0 +1,32 @@
+# Public website implementation audit
+
+Audited 19 October 2026 against the implementation, not earlier rollout plans.
+
+## Application inventory
+
+| Module | Verified UI and behavior | Source |
+| --- | --- | --- |
+| Dashboard | Current balances grouped by currency; spending, income, net cash flow; previous-period comparison; income/spending/spread-cost trends; category donut and values; accounts; recent activity; assets/debts/movements disclosure; onboarding. Day, rolling Week/Month/Year, Total, previous/next periods. Optional saved custom budget month. | `src/client/pages/DashboardPage.tsx`, `components/SpendingCharts.tsx` |
+| Transactions | Quick add expense, income, refund, spread cost, same-currency transfer, asset purchase, debt payment. Edit amounts/accounts/category/time/note; convert expense to spread cost, recurring schedule or transfer. Deletion reverses balances and preserves audit record. Filter type/account/category/from/to, sort occurrence/creation/amount, 25-row pagination. Owner banking transfer pairing where eligible. Backend additionally supports asset sales, drawdowns and adjustments; these are not separate Quick add modes. | `pages/TransactionsPage.tsx`, `features/QuickAdd.tsx`, server transaction domain |
+| Accounts | Cash, checking, savings, credit, investment, other; name, fixed currency, opening balance, institution, color. Recorded balances; manage/archive/restore/permanent deletion with server safeguards. No FX conversion. | `pages/AccountsPage.tsx`, server accounts domain |
+| Categories | User-owned defaults, add/edit name/type/color; expense/income/both; saved reorder affects menus; archive/restore; permanent deletion uncategorizes retained records and removes associated bank rules. | `pages/CategoriesPage.tsx` |
+| Assets | Appreciating, depreciating, custom; acquisition date; principal and value; optional straight-line depreciation; detail tabs for overview/contribute/valuation; contribution history; optional account-linked purchase; manual valuation history/chart/edit; simple gain and percentage, archive. Creating asset alone does not move account money. No live market pricing or advanced investment return claim. | `pages/AssetsPage.tsx` |
+| Debts & loans | Name, original principal, remaining balance, reference APR, currency, lender, opened/due dates; manage status/cancel; Quick add Debt payment. No automatic interest accrual. | `pages/LiabilitiesPage.tsx` |
+| Regular payments | Expense/income/transfer templates with amount/accounts/category, day/week/month/year interval, start/next due; manage and pause. Existing expense can create future schedule via Edit. No automatic payments or scheduler posting. Paused cards currently offer no resume button. | `pages/RecurringPage.tsx`, `pages/TransactionsPage.tsx` |
+| Banking | Immutable configured owner only, server-enforced 401/403 gates. Enable Banking sandbox or separately configured restricted production adapter. Country/institution search, authorization, callback, link new/existing account; reported vs ledger balance; sync status/timing/errors; reconnect/disconnect/remove staging. Initial history review, match/post, keep changed existing entry, start from today, complete review; future posting is conditional. Worker has provider/runtime/consent gates and retry scheduling. Category rule/AI APIs exist but not all have public UI; no AI marketing. | `auth/BankingRoute.tsx`, `pages/Banking*.tsx`, server banking routes/sync/provider/config |
+| Settings | Reporting currency (does not convert records), IANA timezone, device timezone shortcut, custom month start 1–31 with preview, English/Bulgarian device preference, read-only name/email, legal links. | `pages/SettingsPage.tsx` |
+| Authentication | Email/password registration with display name, 12-character upper/lower/number password requirements; login; opaque HttpOnly SameSite cookie at `/`; server revocation on logout, query cache clearing; expired-session redirect. No password reset, social login, whole-account export/deletion UI. | `auth/AuthPages.tsx`, server auth/session/service/routes |
+| Legal | `/privacy` Privacy Policy and `/terms` Terms of Service, both dated 24 September 2026. Preserve all substantive content. Existing publication review remains applicable. | `pages/LegalPages.tsx`, `docs/legal-publication-review.md` |
+| PWA | Standalone install, root-scoped worker, fingerprinted asset precache, network-first HTML, network-only API GETs, no offline financial writes. | `vite.config.ts`, `public/manifest.webmanifest`, `components/PwaStatus.tsx` |
+
+## Architecture and routing decision
+
+React 19 / React Router / TanStack Query / Tailwind / Recharts, Vite lazy pages. Express 5 serves same-origin `/api/*` and the production SPA, PostgreSQL repositories execute in user-scoped transactions with RLS. Session cookie path `/` already supports `/app`; no cookie/schema/API change is needed. Docker multi-stage Node 22 build and PostgreSQL 16 Compose deployment target ARM64; GitHub main→deploy workflow invokes the existing Pi updater. No new infrastructure or production deployment is part of this workspace change.
+
+Move the existing protected shell to `/app` with its existing page children. Canonical app navigation uses `/app/*`. Exact old module URLs, including banking reconciliation, redirect with query string and fragment retained, both in the browser router and production Express. The banking callback still returns its existing `/banking?result=…` URL; compatibility routing carries it to `/app/banking` without changing the provider callback/API. Old `/` now intentionally opens the product website; `/app` is its visible dashboard destination. Unknown URLs show a public 404 rather than silently redirecting. Existing app visuals and finance APIs remain intact.
+
+Public pages use isolated `.sp-*` styling and static examples only. No finance queries are called by previews. A session-status request supports relevant CTAs without rendering names, emails, balances, or other private values. Tutorials are structured content shared with server metadata and sitemap. Server HTML metadata and noindex headers cover direct requests; client metadata covers SPA navigation. Legal source text is unchanged.
+
+## Claims deliberately excluded
+
+Universal bank access, guaranteed sync/automatic duplicate merging, automatic bill payments, automatic loan interest, FX consolidation, market feeds, bank payment initiation, budgeting limits, CSV export, certifications, pricing promises, testimonials, and invented usage statistics.

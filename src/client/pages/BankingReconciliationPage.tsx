@@ -30,7 +30,7 @@ export default function BankingReconciliationPage() {
   const existing=connections.data?.flatMap(connection=>connection.accounts.filter(link=>link.linkMode==='existing'||(production&&link.linkMode==='new')))??[];
   return <>
     <PageHeader eyebrow="Open banking" title="Bank reconciliation" description="Keep your manual history and start bank imports from today, or review historical items individually. Changes to previously imported entries always need review." />
-    <Link to="/banking" className="mb-5 inline-block text-sm font-semibold text-brand underline">Back to Banking</Link>
+    <Link to="/app/banking" className="mb-5 inline-block text-sm font-semibold text-brand underline">Back to Banking</Link>
     {notice&&<Card className="mb-4"><p role="status" className="text-sm">{notice}</p></Card>}
     {connections.isPending||reviews.isPending?<LoadingState/>:connections.isError?<ErrorState error={connections.error} retry={()=>connections.refetch()}/>:reviews.isError?<ErrorState error={reviews.error} retry={()=>reviews.refetch()}/>:<>
       {existing.map(link=>{

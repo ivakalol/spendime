@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /api/
+Disallow: /login
+Disallow: /register
+Disallow: /transactions
+Disallow: /accounts
+Disallow: /categories
+Disallow: /liabilities
+Disallow: /recurring
+Disallow: /settings
+Disallow: /banking
+
+Sitemap: https://spendime.ivaylo.tech/sitemap.xml
