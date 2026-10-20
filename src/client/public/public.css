@@ -5539,7 +5539,7 @@
   .sp-capture-controls { gap: 18px; display: flex; flex-direction: column; align-items: stretch; margin-bottom: 28px; }
   .sp-capture-controls .sp-device-toggle { align-self: flex-start; }
   .sp-capture-controls .sp-device-toggle > button { font-size: 13px; min-height: 45px; padding-inline: 18px; gap: 8px; }
-  .sp-screenshot-tabs { display: flex; overflow-x: auto; width: 100%; max-width: 100%; gap: 20px; scrollbar-width: thin; padding-bottom: 7px; }
+  .sp-screenshot-tabs { display: flex; flex-wrap: wrap; width: 100%; max-width: 100%; gap: 4px 16px; }
   .sp-screenshot-tabs > button { flex: 0 0 auto; font-size: 12px; min-height: 44px; }
   .sp-capture-mobile { flex-direction: column; padding: 0; gap: 0; min-height: 0; background: transparent; }
   .sp-capture-mobile .sp-capture-frame { width: min(100%, 316px); max-width: 316px; border: 6px solid #153b39; border-radius: 27px; transform: none; margin: 0 auto; }

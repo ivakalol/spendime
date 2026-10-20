@@ -1,10 +1,16 @@
 import { AlertCircle, ChevronDown, LoaderCircle, RefreshCw, X } from 'lucide-react';
-import { Children, cloneElement, isValidElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes } from 'react';
+import { Children, cloneElement, createContext, isValidElement, useContext, useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../utils/cn';
 import { useLanguage } from '../i18n';
 
 type Translator = (key: string) => string;
+const FieldContext = createContext<{ id: string; labelId: string; describedBy?: string; invalid: boolean } | null>(null);
+function ancestors(item: HTMLElement, boundary: HTMLElement) {
+  const result: HTMLElement[] = [];
+  for (let parent = item.parentElement; parent && parent !== boundary; parent = parent.parentElement) result.push(parent);
+  return result;
+}
 function translateChildren(children: ReactNode, t: Translator): ReactNode {
   return Children.map(children, (child) => typeof child === 'string' ? t(child) : child);
 }
@@ -22,9 +28,14 @@ export function Button({ className, variant = 'primary', loading = false, childr
   return <button className={cn('control-press relative inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas active:scale-[.98] disabled:pointer-events-none disabled:opacity-45 disabled:shadow-none', variant === 'primary' && 'bg-brand text-white shadow-[0_8px_20px_rgba(16,42,44,.16)] hover:bg-brand/90 hover:shadow-[0_10px_24px_rgba(16,42,44,.2)]', variant === 'secondary' && 'bg-brand/[.07] text-brand ring-1 ring-inset ring-brand/10 hover:bg-brand/[.12]', variant === 'ghost' && 'text-muted hover:bg-brand/[.07] hover:text-ink', variant === 'danger' && 'bg-rose-50 text-rose-800 ring-1 ring-inset ring-rose-200/60 hover:bg-rose-100', className)} {...props} disabled={props.disabled || loading} aria-busy={loading || undefined}><span className={cn('inline-flex items-center justify-center gap-2 [&_svg]:shrink-0', loading && 'opacity-0')}>{translateChildren(children,t)}</span>{loading && <span className="absolute inset-0 grid place-items-center"><LoaderCircle aria-hidden="true" className="size-4 animate-spin" /></span>}</button>;
 }
 export function Card({ children, className }: { children: ReactNode; className?: string }) { return <section className={cn('relative min-w-0 rounded-[1.4rem] border border-brand/[.06] bg-surface p-4 shadow-[0_8px_28px_rgba(18,42,43,.055)] sm:rounded-3xl sm:p-5', className)}>{children}</section>; }
-export function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) { const {t}=useLanguage();return <label className="grid min-w-0 content-start gap-2 text-sm font-semibold leading-snug text-ink"><span>{t(label)}</span>{children}{hint && <span className="text-xs font-normal leading-relaxed text-muted">{t(hint)}</span>}{error && <span className="flex items-center gap-1.5 text-xs font-medium leading-relaxed text-rose-700"><AlertCircle className="size-3.5 shrink-0" />{t(error)}</span>}</label>; }
-export function Input({ className, placeholder, 'aria-label': ariaLabel, ...props }: InputHTMLAttributes<HTMLInputElement>) { const {t}=useLanguage();return <input className={cn('control-press min-h-12 w-full rounded-2xl border border-brand/[.14] bg-surface px-3.5 text-base text-ink shadow-[0_1px_0_rgba(255,255,255,.8),inset_0_1px_2px_rgba(18,42,43,.025)] outline-none placeholder:text-muted/55 hover:border-brand/25 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:cursor-not-allowed disabled:bg-brand/[.035] disabled:text-muted', className)} placeholder={placeholder ? t(placeholder) : undefined} aria-label={ariaLabel ? t(ariaLabel) : undefined} {...props} />; }
-export function Select({ className, children, 'aria-label': ariaLabel, ...props }: SelectHTMLAttributes<HTMLSelectElement>) { const {t}=useLanguage();return <span className="relative block min-w-0"><select className={cn('control-press min-h-12 w-full appearance-none rounded-2xl border border-brand/[.14] bg-surface py-2.5 pl-3.5 pr-10 text-base text-ink shadow-[0_1px_0_rgba(255,255,255,.8),inset_0_1px_2px_rgba(18,42,43,.025)] outline-none hover:border-brand/25 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:cursor-not-allowed disabled:bg-brand/[.035] disabled:text-muted', className)} aria-label={ariaLabel ? t(ariaLabel) : undefined} {...props}>{translateOptions(children,t)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" /></span>; }
+export function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) {
+  const { t } = useLanguage();
+  const id = useId();
+  const describedBy = [hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ') || undefined;
+  return <FieldContext.Provider value={{ id, labelId: `${id}-label`, describedBy, invalid: Boolean(error) }}><label className="grid min-w-0 content-start gap-2 text-sm font-semibold leading-snug text-ink"><span id={`${id}-label`}>{t(label)}</span>{children}{hint && <span id={`${id}-hint`} className="text-xs font-normal leading-relaxed text-muted">{t(hint)}</span>}{error && <span id={`${id}-error`} role="alert" className="flex items-center gap-1.5 text-xs font-medium leading-relaxed text-rose-700"><AlertCircle aria-hidden="true" className="size-3.5 shrink-0" />{t(error)}</span>}</label></FieldContext.Provider>;
+}
+export function Input({ className, placeholder, 'aria-label': ariaLabel, ...props }: InputHTMLAttributes<HTMLInputElement>) { const {t}=useLanguage();const field=useContext(FieldContext);return <input id={field?.id} aria-labelledby={ariaLabel ? undefined : field?.labelId} aria-describedby={field?.describedBy} aria-invalid={field?.invalid || undefined} className={cn('control-press min-h-12 w-full rounded-2xl border border-brand/[.14] bg-surface px-3.5 text-base text-ink shadow-[0_1px_0_rgba(255,255,255,.8),inset_0_1px_2px_rgba(18,42,43,.025)] outline-none placeholder:text-muted/55 hover:border-brand/25 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:cursor-not-allowed disabled:bg-brand/[.035] disabled:text-muted', className)} placeholder={placeholder ? t(placeholder) : undefined} aria-label={ariaLabel ? t(ariaLabel) : undefined} {...props} />; }
+export function Select({ className, children, 'aria-label': ariaLabel, ...props }: SelectHTMLAttributes<HTMLSelectElement>) { const {t}=useLanguage();const field=useContext(FieldContext);return <span className="relative block min-w-0"><select id={field?.id} aria-labelledby={ariaLabel ? undefined : field?.labelId} aria-describedby={field?.describedBy} aria-invalid={field?.invalid || undefined} className={cn('control-press min-h-12 w-full appearance-none rounded-2xl border border-brand/[.14] bg-surface py-2.5 pl-3.5 pr-10 text-base text-ink shadow-[0_1px_0_rgba(255,255,255,.8),inset_0_1px_2px_rgba(18,42,43,.025)] outline-none hover:border-brand/25 focus:border-accent focus:ring-4 focus:ring-accent/10 disabled:cursor-not-allowed disabled:bg-brand/[.035] disabled:text-muted', className)} aria-label={ariaLabel ? t(ariaLabel) : undefined} {...props}>{translateOptions(children,t)}</select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" /></span>; }
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'positive' | 'negative' | 'info' | 'warning' }) { const {t}=useLanguage();return <span className={cn('inline-flex max-w-full items-center break-words rounded-full px-2.5 py-1 text-xs font-semibold', tone === 'neutral' && 'bg-brand/8 text-muted', tone === 'positive' && 'bg-emerald-50 text-emerald-800', tone === 'negative' && 'bg-rose-50 text-rose-800', tone === 'info' && 'bg-blue-50 text-blue-800', tone === 'warning' && 'bg-amber-50 text-amber-900')}>{translateChildren(children,t)}</span>; }
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) { const {t}=useLanguage();return <header className="page-header mb-4 flex flex-wrap items-start justify-between gap-2.5 sm:mb-7 sm:flex-nowrap sm:gap-6"><div className="min-w-0">{eyebrow && <p className="mb-1 text-[11px] font-bold uppercase tracking-[.2em] text-accent sm:mb-1.5">{t(eyebrow)}</p>}<h1 className="text-[1.65rem] font-bold leading-tight tracking-[-.035em] text-ink sm:text-3xl">{t(title)}</h1>{description && <p className="mt-1 max-w-2xl text-sm leading-snug text-muted sm:mt-1.5 sm:leading-relaxed">{t(description)}</p>}</div>{action && <div className="page-header-action shrink-0">{action}</div>}</header>; }
 export function LoadingState({ label }: { label?: string }) { const {t}=useLanguage();return <div className="grid min-h-56 place-items-center text-sm text-muted" role="status" aria-live="polite"><span className="flex flex-col items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-surface shadow-soft"><LoaderCircle className="size-5 animate-spin text-accent" /></span>{label??t('Loading your finances…')}</span></div>; }
@@ -42,13 +53,17 @@ export function Modal({ open, title, description, onClose, children, closeDisabl
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const element = panel.current;
+    const root = document.getElementById('root');
+    const originalInert = root?.inert ?? false;
+    if (root) root.inert = true;
     element?.focus();
     const keydown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !disabledRef.current) closeRef.current();
       if (event.key === 'Tab' && element) {
-        const focusable = [...element.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')];
+        const focusable = [...element.querySelectorAll<HTMLElement>('button,input,select,textarea,a[href],[tabindex]')].filter(item => item.tabIndex >= 0 && !item.matches(':disabled,input[type="hidden"]') && !item.closest('[hidden],[inert]') && ![item, ...ancestors(item, element)].some(node => getComputedStyle(node).display === 'none' || getComputedStyle(node).visibility === 'hidden'));
         const first = focusable[0], last = focusable.at(-1);
-        if (document.activeElement === element) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
+        if (!first) { event.preventDefault(); element.focus(); }
+        else if (document.activeElement === element || !element.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
         else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }
@@ -77,7 +92,8 @@ export function Modal({ open, title, description, onClose, children, closeDisabl
       window.removeEventListener('resize', resize);
       document.body.style.overflow = originalBodyOverflow;
       document.documentElement.style.overflow = originalHtmlOverflow;
-      previous?.focus();
+      if (root) root.inert = originalInert;
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, [open]);
   if (!open) return null;
@@ -94,4 +110,11 @@ export function Modal({ open, title, description, onClose, children, closeDisabl
     </section>
   </div>, document.body);
 }
-export function FormError({ error }: { error: unknown }) { const {t}=useLanguage();if (!error) return null; const detail=(error as {fields?:Array<{message?:string}>}).fields?.[0]?.message;return <div role="alert" className="flex items-start gap-2 rounded-2xl border border-rose-200/60 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="mt-0.5 size-4 shrink-0" />{detail||(error instanceof Error ? error.message : t('The request failed.'))}</div>; }
+export function FormError({ error }: { error: unknown }) {
+  const { t } = useLanguage();
+  const message = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) message.current?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' }); }, [error]);
+  if (!error) return null;
+  const detail = (error as { fields?: Array<{ message?: string }> }).fields?.[0]?.message;
+  return <div ref={message} role="alert" className="flex items-start gap-2 rounded-2xl border border-rose-200/60 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" /><span className="min-w-0 break-words">{detail || (error instanceof Error ? error.message : t('The request failed.'))}</span></div>;
+}

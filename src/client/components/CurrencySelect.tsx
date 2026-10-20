@@ -11,7 +11,7 @@ export function CurrencySelect({ value, onChange, disabled = false }: { value: s
     <Input list={id} value={value} onChange={event => onChange(event.target.value.toUpperCase())}
       onBlur={event => event.target.setCustomValidity(currencyCodes.includes(event.target.value) ? '' : 'Choose a currency from the list.')}
       onInput={event => event.currentTarget.setCustomValidity('')}
-      placeholder="Search currencies" autoComplete="off" required disabled={disabled} />
+      placeholder="Search currencies" autoComplete="off" autoCapitalize="characters" spellCheck={false} required disabled={disabled} />
     <datalist id={id}>{currencyCodes.map(code => <option key={code} value={code}>{names.of(code)} · {code}</option>)}</datalist>
   </>;
 }

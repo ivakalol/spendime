@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Button, Modal } from '../../src/client/components/ui';
+import { Button, Field, Input, Modal, Select } from '../../src/client/components/ui';
 
 afterEach(() => {
   cleanup();
@@ -14,6 +14,22 @@ afterEach(() => {
 });
 
 describe('responsive modal primitive', () => {
+  it('skips hidden and untabbable controls when trapping focus', async () => {
+    render(<Modal open title="Dialog" onClose={vi.fn()}><div hidden><Button>Hidden</Button></div><input type="hidden" /><Button tabIndex={-1}>Radio sibling</Button><div style={{display:'none'}}><Button>Also hidden</Button></div><Button>Visible action</Button><div tabIndex={0}>Chart values</div></Modal>);
+    await userEvent.tab({shift:true});
+    expect(screen.getByText('Chart values')).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('button',{name:'Close dialog'})).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole('button',{name:'Visible action'})).toHaveFocus();
+  });
+
+  it('associates field hints and errors without adding them to the field name', () => {
+    render(<><Field label="Amount" hint="In EUR" error="Enter a positive amount"><Input /></Field><Field label="Account" hint="Where you paid"><Select><option>Cash</option></Select></Field></>);
+    expect(screen.getByRole('textbox',{name:'Amount'})).toHaveAccessibleDescription('In EUR Enter a positive amount');
+    expect(screen.getByRole('textbox',{name:'Amount'})).toHaveAttribute('aria-invalid','true');
+    expect(screen.getByRole('combobox',{name:'Account'})).toHaveAccessibleDescription('Where you paid');
+  });
   it('keeps backward keyboard navigation inside the initially focused dialog', async () => {
     render(<Modal open title="Dialog" onClose={vi.fn()}><Button>Last action</Button></Modal>);
     expect(screen.getByRole('dialog')).toHaveFocus();

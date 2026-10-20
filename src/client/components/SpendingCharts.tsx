@@ -5,6 +5,7 @@ import { categoryBreakdown } from '../utils/analytics';
 import { addCalendarDays } from '../utils/dateTime';
 import { formatMoney } from '../utils/money';
 import { Card } from './ui';
+import { ScrollRail } from './ScrollRail';
 import { useLanguage } from '../i18n';
 
 const colors = ['#205b50', '#c27647', '#497ea0', '#8c6398', '#a0802d', '#517c67', '#ba5363', '#75848b'];
@@ -114,16 +115,16 @@ export function SpendingTrend({ data, currency, period }: { data: DashboardData;
           <XAxis dataKey="date" padding={{right:30}} tickFormatter={value=>monthly?value.slice(0,7):value.slice(5)} tick={{fontSize:11}} minTickGap={24}/>
           <YAxis width={45} tick={{fontSize:11}}/>
           <Tooltip allowEscapeViewBox={{x:false,y:false}} formatter={(_,key,entry)=>[formatMoney(entry.dataKey==='spending'?entry.payload.exactSpending:entry.dataKey==='income'?entry.payload.exactIncome:entry.payload.exactCost,currency),key]}/>
-          {visible.income&&<Area type="linear" dataKey="income" name={t('Income')} stroke="#205b50" fill="#205b50" fillOpacity={.06} strokeDasharray="4 3" dot={rows.length===1}/>}
-          {visible.spending&&<Area type="linear" dataKey="spending" name={t('Spending')} stroke="#c27647" fill="#c27647" fillOpacity={.12} dot={rows.length===1}/>}
-          {visible.cost&&<Area type="linear" dataKey="cost" name={t('Cost spread over use days')} stroke="#8f6bb3" fill="#8f6bb3" fillOpacity={.06} strokeDasharray="5 4" dot={rows.length===1}/>}
+          {visible.income&&<Area isAnimationActive={false} type="linear" dataKey="income" name={t('Income')} stroke="#205b50" fill="#205b50" fillOpacity={.06} strokeDasharray="4 3" dot={rows.length===1}/>}
+          {visible.spending&&<Area isAnimationActive={false} type="linear" dataKey="spending" name={t('Spending')} stroke="#c27647" fill="#c27647" fillOpacity={.12} dot={rows.length===1}/>}
+          {visible.cost&&<Area isAnimationActive={false} type="linear" dataKey="cost" name={t('Cost spread over use days')} stroke="#8f6bb3" fill="#8f6bb3" fillOpacity={.06} strokeDasharray="5 4" dot={rows.length===1}/>}
         </AreaChart></ResponsiveContainer>
       </div>
       <details className="mt-3 text-sm"><summary className="cursor-pointer py-2 font-semibold">View chart values</summary>
-        <div className="trend-values max-h-56 overflow-auto" tabIndex={0} role="region" aria-label={t("Chart values")}><table className="w-full text-left"><caption className="sr-only">Exact trend values in {currency}</caption>
+        <ScrollRail className="trend-values max-h-56 overflow-auto" tabIndex={0} role="region" aria-label={t("Chart values")}><table className="w-full text-left"><caption className="sr-only">Exact trend values in {currency}</caption>
           <thead><tr><th scope="col">{monthly?t('Month'):t('Date')}</th>{visible.spending&&<th scope="col">{t('Spending')}</th>}{visible.income&&<th scope="col">{t('Income')}</th>}{visible.cost&&<th scope="col">{t('Cost spread over use days')}</th>}</tr></thead>
           <tbody>{rows.map(row=><tr key={row.date}><th scope="row" className="py-2 font-normal">{monthly?row.date.slice(0,7):row.date}</th>{visible.spending&&<td>{formatMoney(row.exactSpending,currency)}</td>}{visible.income&&<td>{formatMoney(row.exactIncome,currency)}</td>}{visible.cost&&<td>{formatMoney(row.exactCost,currency)}</td>}</tr>)}</tbody>
-        </table></div>
+        </table></ScrollRail>
       </details>
     </> : <p className="py-20 text-center text-sm text-muted">Your income and spending trend will appear here after your first transaction in this period.</p>}
   </Card>;

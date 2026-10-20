@@ -3,12 +3,18 @@
  * Not included in the production image. Every name and amount is fictional.
  */
 import { createServer } from 'vite';
+import { execFileSync } from 'node:child_process';
+import { relative } from 'node:path';
+const banking = process.argv.includes('--banking');
+const baseline = process.argv.includes('--baseline');
+const largeBalances = process.argv.includes('--large-balances');
 const stamp = '2026-10-01T12:00:00.000Z';
-const user = { id: 'demo-user', email: 'demo@example.test', displayName: 'Ivo Demo', baseCurrency: 'EUR', timezone: 'UTC', emailVerifiedAt: null, createdAt: stamp, bankingAccess: false, bankingEnabled: false, onboardingCompletedAt: stamp };
+const user = { id: 'demo-user', email: 'demo@example.test', displayName: 'Ivo Demo', baseCurrency: 'EUR', timezone: 'UTC', emailVerifiedAt: null, createdAt: stamp, bankingAccess: banking, bankingEnabled: banking, onboardingCompletedAt: stamp };
 const accounts = [
   { id: 'everyday', name: 'Everyday account', kind: 'checking', openingBalance: '1945.00', currentBalance: '3460.50', color: '#315f61' },
   { id: 'savings', name: 'Savings', kind: 'savings', openingBalance: '4600.00', currentBalance: '5000.00', color: '#c27647' },
 ].map(value => ({ ...value, currency: 'EUR', institution: null, icon: null, isArchived: false, createdAt: stamp, updatedAt: stamp }));
+if (largeBalances) Object.assign(accounts[0], { openingBalance:'9999998484.49', currentBalance:'9999999999.99' });
 const categories = ['Food', 'Home', 'Lifestyle', 'Transport', 'Salary'].map((name, i) => ({ id: `category-${i}`, name, kind: i === 4 ? 'income' : 'expense', color: ['#205b50','#c27647','#497ea0','#a9b6a1','#205b50'][i], icon: null, isArchived: false, isSystem: true, createdAt: stamp, updatedAt: stamp }));
 const transactions = [
   ['Weekly groceries', 'expense', '64.80', 'category-0', '19'],
@@ -42,6 +48,10 @@ const fixtures = (req, res, next) => {
   // Also allow signed-out public-site QA without contacting another API server.
   if(url.pathname==='/api/auth/me' && String(req.headers.referer).includes('visitor=1')) {res.statusCode=401;res.end(JSON.stringify({error:{code:'unauthenticated'}}));return;}
   let data = [];
+  if (url.pathname === '/api/banking/institutions') data = [{name:'Example European Bank',country:url.searchParams.get('country')??'BG',beta:true}];
+  if (url.pathname === '/api/banking/connections') data = [{id:'demo-bank',institutionName:'Example European Bank',status:'active',syncing:false,lastSyncedAt:stamp,consentExpiresAt:'2027-01-01T00:00:00Z',nextSyncAt:'2027-01-01T00:00:00Z',accounts:[{id:'demo-link',name:'Everyday bank account',currency:'EUR',accountId:'everyday',linkMode:'existing',automaticPostAfter:null,historyIgnoredBefore:null,reviewCount:1,unresolvedReviewCount:1,reportedBalance:'3460.50',ledgerBalance:'3460.50',balanceStatus:'unreviewed',lastSyncedAt:stamp}]}];
+  if (url.pathname === '/api/banking/review') data = [{id:'demo-review',bankAccountLinkId:'demo-link',accountName:'Everyday bank account',direction:'debit',amount:'64.80',currency:'EUR',occurredOn:'2026-10-19',merchant:'Example grocery store',description:'Weekly groceries',ledgerTransactionId:null,proposedAmount:null,proposedCurrency:null,proposedOccurredOn:null}];
+  if (url.pathname === '/api/banking/review/demo-review/candidates') data = transactions.slice(0,1);
   if (url.pathname === '/api/auth/me') data = { user };
   if (url.pathname === '/api/accounts') data = accounts;
   if (url.pathname === '/api/categories') data = categories;
@@ -68,8 +78,16 @@ const fixtures = (req, res, next) => {
   res.end(JSON.stringify({ data }));
 };
 const server = await createServer({
-  server:{host:'127.0.0.1',port:5175,strictPort:true},clearScreen:false,
-  plugins:[{name:'read-only-fictional-fixtures',configureServer(server){server.middlewares.use(fixtures);}}],
+  cacheDir: baseline ? 'node_modules/.vite-preview-baseline' : 'node_modules/.vite-preview',
+  server:{host:'127.0.0.1',port:baseline?5176:5175,strictPort:true},clearScreen:false,
+  plugins:[{name:'read-only-fictional-fixtures',configureServer(server){server.middlewares.use(fixtures);}}, ...(baseline?[{
+    name:'committed-client-baseline', enforce:'pre',
+    load(id) {
+      const path=relative(process.cwd(),id.split('?')[0]).replaceAll('\\','/');
+      if(!path.startsWith('src/client/'))return;
+      try {return execFileSync('git',['show',`HEAD:${path}`],{encoding:'utf8',stdio:['ignore','pipe','pipe']});} catch {return;}
+    },
+  }]:[])],
 });
 await server.listen();
-console.log('Read-only fictional Ivo fixtures: http://127.0.0.1:5175/app');
+console.log(`Read-only fictional fixtures${baseline?' (committed baseline)':''}: http://localhost:${baseline?5176:5175}/app`);

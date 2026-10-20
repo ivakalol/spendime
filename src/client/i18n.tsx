@@ -4,6 +4,9 @@ export type Language = 'en' | 'bg';
 const STORAGE_KEY = 'spendime.language';
 
 const bg: Record<string, string> = {
+  'Previous options': 'Предишни опции', 'More options': 'Още опции', 'Asset views': 'Изгледи на актива',
+  'Originally borrowed': 'Първоначално заето', 'Still owed': 'Оставащ дълг',
+  'Loading accounts…': 'Зареждане на сметки…', 'Legal and home': 'Правна информация и начало',
   'Dashboard': 'Табло', 'Transactions': 'Транзакции', 'Accounts': 'Сметки', 'Assets': 'Активи',
   'Liabilities': 'Задължения', 'Recurring': 'Периодични', 'Categories': 'Категории', 'Settings': 'Настройки',
   'Sign out': 'Изход', 'Signing out…': 'Излизане…', 'More': 'Още', 'Quick add': 'Бързо добавяне',
