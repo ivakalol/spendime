@@ -345,3 +345,31 @@ main [class~="flex"] > div { min-width: 0; }
   .sp-legal-page footer { font-size: 12px; line-height: 1.8; }
   .sp-legal-page footer a { display: inline-flex; align-items: center; min-height: 44px; }
 }
+/* Translated controls grow with their labels at phone widths and larger text sizes. */
+.app-mobile-nav { align-items: stretch; }
+.app-mobile-nav > a, .app-mobile-nav > button:not([aria-label]) { min-width: 0; padding: .25rem .125rem; text-align: center; line-height: 1.25; }
+.app-mobile-nav a > span { max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
+.app-mobile-nav svg, .app-sidebar nav svg { flex-shrink: 0; }
+.page-header-action { max-width: 100%; }
+.page-header-action > div { min-width: 0; }
+.modal-actions > button { max-width: 100%; }
+.entry-type { flex-basis: 6.5rem; min-width: 0; }
+.entry-type > span { overflow-wrap: anywhere; hyphens: auto; }
+@media (max-width: 479px) {
+  .modal-scroll [class~="grid-cols-2"] { grid-template-columns: minmax(0, 1fr); }
+  .page-header-action > div > button { flex: 1 1 9rem; }
+  .modal-actions > button { flex: 1 1 9rem; }
+  .asset-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .asset-tabs > button { hyphens: auto; }
+  .mobile-entity-card > p:not(.money-value) { grid-column: 1 / -1; text-align: left; }
+  .dashboard-periods { gap: .125rem; }
+  .dashboard-periods > button { white-space: normal; overflow-wrap: anywhere; }
+}
+@media (max-width: 359px) {
+  .app-mobile-nav a > span { font-size: 10px; letter-spacing: -.015em; hyphens: none; }
+}
+@media (max-width: 359px) {
+  .app-mobile-nav { grid-template-columns: 1fr 1.4fr 1fr 1.1fr .8fr; }
+  .app-mobile-nav a > span { font-size: 11px; letter-spacing: -.015em; hyphens: none; white-space: nowrap; }
+  .dashboard-periods > button { font-size: 11px; letter-spacing: -.02em; white-space: nowrap; }
+}

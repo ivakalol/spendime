@@ -1,3 +1,5 @@
+import { useCategories } from '../api/queries';
+import { categoryLabel } from '../utils/categoryLabel';
 import { useEffect, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { DashboardData } from '../api/types';
@@ -6,24 +8,29 @@ import { addCalendarDays } from '../utils/dateTime';
 import { formatMoney } from '../utils/money';
 import { Card } from './ui';
 import { ScrollRail } from './ScrollRail';
-import { useLanguage } from '../i18n';
+import { useLanguage, interfaceLocale } from '../i18n';
 
 const colors = ['#205b50', '#c27647', '#497ea0', '#8c6398', '#a0802d', '#517c67', '#ba5363', '#75848b'];
 export function SpendingDonut({ rows, currency }: { rows: DashboardData['spendingByCategory']; currency: string }) {
-  const breakdown = categoryBreakdown(rows, currency);
+  const { t } = useLanguage();
+
+  const categories = useCategories(false);
+  const localizedRows = rows.map(row => { const category = categories.data?.find(item => item.id === row.categoryId); return {...row, categoryName: category ? categoryLabel(category,t) : row.categoryId === null ? t('Uncategorized') : row.categoryName}; });
+  const breakdown = categoryBreakdown(localizedRows, currency);
+  const slices = breakdown.slices.map(slice => ({...slice, name: slice.name === 'Other categories' ? t(slice.name) : slice.name}));
   const [selected, setSelected] = useState<string | null>(null);
-  return <Card className="min-w-0"><h2 className="font-bold">Where your money went</h2><p className="mt-1 text-sm text-muted">Spending by category · {currency}</p>
-    {breakdown.slices.length ? <>
-      <div className="relative h-52 sm:h-60" role="img" aria-label={`Spending proportions in ${currency}. Exact values and percentages listed below.`}>
-        <ResponsiveContainer><PieChart><Pie data={breakdown.slices} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="88%" paddingAngle={2} isAnimationActive={false} onClick={slice=>setSelected(slice.name??null)}>
-          {breakdown.slices.map((slice,index)=><Cell key={slice.name} fill={colors[index]} opacity={selected && selected!==slice.name ? .4 : 1}/>)}</Pie>
-          <Tooltip formatter={(_,__,entry)=>`${formatMoney(entry.payload.exact,currency)} · ${entry.payload.percentage}`}/></PieChart></ResponsiveContainer>
-        <div className="pointer-events-none absolute inset-0 grid content-center text-center"><span className="text-xs text-muted">Category total</span><strong className="money-value text-xl">{formatMoney(breakdown.total,currency)}</strong></div>
+  return <Card className="min-w-0"><h2 className="font-bold">{t("Where your money went")}</h2><p className="mt-1 text-sm text-muted">{t("Spending by category · ")}{currency}</p>
+    {slices.length ? <>
+      <div className="relative h-52 sm:h-60" role="img" aria-label={t('Spending proportions in {currency}. Exact values and percentages listed below.', {currency})}>
+        <ResponsiveContainer><PieChart><Pie data={slices} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="88%" paddingAngle={2} isAnimationActive={false} onClick={slice=>setSelected(slice.name??null)}>
+          {slices.map((slice,index)=><Cell key={slice.name} fill={colors[index]} opacity={selected && selected!==slice.name ? .4 : 1}/>)}</Pie>
+          <Tooltip formatter={(_,__,entry)=>`${formatMoney(entry.payload.exact,currency)} · ${entry.payload.percentage.replace('.', interfaceLocale() === 'bg-BG' ? ',' : '.')}`}/></PieChart></ResponsiveContainer>
+        <div className="pointer-events-none absolute inset-0 grid content-center text-center"><span className="text-xs text-muted">{t("Category total")}</span><strong className="money-value text-xl">{formatMoney(breakdown.total,currency)}</strong></div>
       </div>
-      <ul className="category-legend grid gap-1" aria-label="Category values and percentages">{breakdown.slices.map((slice,index)=><li key={slice.name}><button type="button" aria-pressed={selected===slice.name} onClick={()=>setSelected(selected===slice.name?null:slice.name)} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm hover:bg-brand/5"><span aria-hidden className="size-3 shrink-0 rounded-full" style={{background:colors[index]}}/><span className="min-w-0 flex-1 break-words">{slice.name}</span><span className="text-muted">{slice.percentage}</span><strong className="money-value">{formatMoney(slice.exact,currency)}</strong></button></li>)}</ul>
-      {breakdown.other.length>0 && <details className="mt-3 text-sm"><summary className="cursor-pointer py-2 font-semibold">Inside Other categories</summary>{breakdown.other.map(row=><p className="flex justify-between gap-2 py-1" key={row.categoryId??'none'}><span>{row.categoryName}</span><span>{formatMoney(row.actualSpending,currency)}</span></p>)}</details>}
-    </> : <p className="py-12 text-center text-sm text-muted">No positive spending in this period. Add an expense or choose another period to see your breakdown.</p>}
-    {breakdown.refunds.length>0 && <div className="mt-4 border-t border-brand/10 pt-3 text-sm"><p className="mb-2 text-muted">These categories had more refunds than spending. They reduce net spending above and are excluded from donut proportions.</p>{breakdown.refunds.map(row=><p className="flex justify-between gap-2 py-1" key={row.categoryId??'none'}><span>{row.categoryName}</span><strong>{formatMoney(row.actualSpending,currency)}</strong></p>)}</div>}
+      <ul className="category-legend grid gap-1" aria-label={t("Category values and percentages")}>{slices.map((slice,index)=><li key={slice.name}><button type="button" aria-pressed={selected===slice.name} onClick={()=>setSelected(selected===slice.name?null:slice.name)} className="flex min-h-11 w-full items-center gap-2 rounded-xl px-2 text-left text-sm hover:bg-brand/5"><span aria-hidden className="size-3 shrink-0 rounded-full" style={{background:colors[index]}}/><span className="min-w-0 flex-1 break-words">{slice.name}</span><span className="text-muted">{slice.percentage.replace('.', interfaceLocale() === 'bg-BG' ? ',' : '.')}</span><strong className="money-value">{formatMoney(slice.exact,currency)}</strong></button></li>)}</ul>
+      {breakdown.other.length>0 && <details className="mt-3 text-sm"><summary className="cursor-pointer py-2 font-semibold">{t("Inside Other categories")}</summary>{breakdown.other.map(row=><p className="flex justify-between gap-2 py-1" key={row.categoryId??'none'}><span>{row.categoryName}</span><span>{formatMoney(row.actualSpending,currency)}</span></p>)}</details>}
+    </> : <p className="py-12 text-center text-sm text-muted">{t("No positive spending in this period. Add an expense or choose another period to see your breakdown.")}</p>}
+    {breakdown.refunds.length>0 && <div className="mt-4 border-t border-brand/10 pt-3 text-sm"><p className="mb-2 text-muted">{t("These categories had more refunds than spending. They reduce net spending above and are excluded from donut proportions.")}</p>{breakdown.refunds.map(row=><p className="flex justify-between gap-2 py-1" key={row.categoryId??'none'}><span>{row.categoryName}</span><strong>{formatMoney(row.actualSpending,currency)}</strong></p>)}</div>}
   </Card>;
 }
 
@@ -97,7 +104,7 @@ export function SpendingTrend({ data, currency, period }: { data: DashboardData;
     {key:'cost' as const,label:'Cost spread over use days',color:'#8f6bb3'},
   ];
   return <Card className="min-w-0">
-    <h2 className="font-bold">Money over time</h2>
+    <h2 className="font-bold">{t("Money over time")}</h2>
     <p className="mt-1 text-sm text-muted">{t('Selected trends')} · {currency}</p>
     <div role="group" aria-label={t('Chart series')} className="mt-3 flex flex-wrap gap-1.5 sm:mt-4 sm:gap-2">
       {series.map(({key,label,color})=><label key={key} className="cursor-pointer">
@@ -107,25 +114,25 @@ export function SpendingTrend({ data, currency, period }: { data: DashboardData;
         </span>
       </label>)}
     </div>
-    <p className="mt-3 text-xs leading-relaxed text-muted">Actual spending is recorded on the purchase date. Cost spread over use days distributes amortized purchases across their use period.</p>
+    <p className="mt-3 text-xs leading-relaxed text-muted">{t("Actual spending is recorded on the purchase date. Cost spread over use days distributes amortized purchases across their use period.")}</p>
     {meaningfulKeys.length ? <>
-      <div className="mt-4 h-56 sm:mt-6 sm:h-64" role="img" aria-label={`${t('Selected trends')} over time in ${currency}; values available in the table below.`}>
+      <div className="mt-4 h-56 sm:mt-6 sm:h-64" role="img" aria-label={t('Selected trends over time in {currency}; values available in the table below.', {currency})}>
         <ResponsiveContainer><AreaChart data={rows} margin={{top:12,bottom:12,left:0,right:12}}>
           <CartesianGrid vertical={false} stroke="#e2e5df"/>
           <XAxis dataKey="date" padding={{right:30}} tickFormatter={value=>monthly?value.slice(0,7):value.slice(5)} tick={{fontSize:11}} minTickGap={24}/>
-          <YAxis width={45} tick={{fontSize:11}}/>
+          <YAxis tickFormatter={value=>new Intl.NumberFormat(interfaceLocale(),{notation:'compact'}).format(value)} width={45} tick={{fontSize:11}}/>
           <Tooltip allowEscapeViewBox={{x:false,y:false}} formatter={(_,key,entry)=>[formatMoney(entry.dataKey==='spending'?entry.payload.exactSpending:entry.dataKey==='income'?entry.payload.exactIncome:entry.payload.exactCost,currency),key]}/>
           {visible.income&&<Area isAnimationActive={false} type="linear" dataKey="income" name={t('Income')} stroke="#205b50" fill="#205b50" fillOpacity={.06} strokeDasharray="4 3" dot={rows.length===1}/>}
           {visible.spending&&<Area isAnimationActive={false} type="linear" dataKey="spending" name={t('Spending')} stroke="#c27647" fill="#c27647" fillOpacity={.12} dot={rows.length===1}/>}
           {visible.cost&&<Area isAnimationActive={false} type="linear" dataKey="cost" name={t('Cost spread over use days')} stroke="#8f6bb3" fill="#8f6bb3" fillOpacity={.06} strokeDasharray="5 4" dot={rows.length===1}/>}
         </AreaChart></ResponsiveContainer>
       </div>
-      <details className="mt-3 text-sm"><summary className="cursor-pointer py-2 font-semibold">View chart values</summary>
-        <ScrollRail className="trend-values max-h-56 overflow-auto" tabIndex={0} role="region" aria-label={t("Chart values")}><table className="w-full text-left"><caption className="sr-only">Exact trend values in {currency}</caption>
+      <details className="mt-3 text-sm"><summary className="cursor-pointer py-2 font-semibold">{t("View chart values")}</summary>
+        <ScrollRail className="trend-values max-h-56 overflow-auto" tabIndex={0} role="region" aria-label={t("Chart values")}><table className="w-full text-left"><caption className="sr-only">{t("Exact trend values in ")}{currency}</caption>
           <thead><tr><th scope="col">{monthly?t('Month'):t('Date')}</th>{visible.spending&&<th scope="col">{t('Spending')}</th>}{visible.income&&<th scope="col">{t('Income')}</th>}{visible.cost&&<th scope="col">{t('Cost spread over use days')}</th>}</tr></thead>
           <tbody>{rows.map(row=><tr key={row.date}><th scope="row" className="py-2 font-normal">{monthly?row.date.slice(0,7):row.date}</th>{visible.spending&&<td>{formatMoney(row.exactSpending,currency)}</td>}{visible.income&&<td>{formatMoney(row.exactIncome,currency)}</td>}{visible.cost&&<td>{formatMoney(row.exactCost,currency)}</td>}</tr>)}</tbody>
         </table></ScrollRail>
       </details>
-    </> : <p className="py-20 text-center text-sm text-muted">Your income and spending trend will appear here after your first transaction in this period.</p>}
+    </> : <p className="py-20 text-center text-sm text-muted">{t("Your income and spending trend will appear here after your first transaction in this period.")}</p>}
   </Card>;
 }

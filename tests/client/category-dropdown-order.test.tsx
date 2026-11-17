@@ -1,3 +1,4 @@
+import { LanguageProvider } from '../../src/client/i18n';
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -18,7 +19,7 @@ const categories: Category[] = [
 const account: Account = {id:'account',name:'Cash',kind:'cash',currency:'EUR',openingBalance:'0',currentBalance:'100',institution:null,color:null,icon:null,isArchived:false,createdAt:'',updatedAt:''};
 const transaction: Transaction = {id:'t',kind:'expense',method:'standard',sourceAccountId:account.id,destinationAccountId:null,categoryId:null,assetId:null,liabilityId:null,recurringRuleId:null,amount:'20',currency:'EUR',occurredAt:'2026-10-11T12:00:00Z',description:null,merchant:null,amortizationStart:null,amortizationEnd:null,dailyImpact:null,voidedAt:null,voidReason:null,createdAt:'',updatedAt:''};
 
-afterEach(cleanup);
+afterEach(()=>{cleanup();localStorage.clear();document.documentElement.lang='';});
 
 describe('saved category order in transaction menus',()=>{
   it.each(['new','edit'] as const)('preserves the saved order in the %s expense menu while filtering ineligible categories',mode=>{
@@ -35,4 +36,22 @@ describe('saved category order in transaction menus',()=>{
     const options=within(screen.getByLabelText(/^Category/)).getAllByRole('option');
     expect(options.map(option=>option.textContent)).toEqual(['Uncategorized','Travel','Other','Food']);
   });
+});
+
+it.each(['new','edit'] as const)('translates default categories in the Bulgarian %s menu without changing custom names or category IDs', mode => {
+  localStorage.setItem('spendime.language','bg');
+  const localized = categories.map(category=>({...category,isSystem:category.id==='a'}));
+  const client=new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});
+  client.setQueryData([...keys.accounts,false],[account]);
+  client.setQueryData([...keys.categories,false],localized.filter(item=>!item.isArchived));
+  client.setQueryData([...keys.assets,false],[]);
+  client.setQueryData([...keys.liabilities,false],[]);
+  client.setQueryData(keys.me,{baseCurrency:'EUR',timezone:'UTC'});
+  render(<LanguageProvider><QueryClientProvider client={client}>{mode==='new'
+    ?<QuickAdd open onClose={()=>{}}/>
+    :<TransactionDialog transaction={transaction} accounts={[account]} categories={localized} timezone="UTC" onClose={()=>{}}/>
+  }</QueryClientProvider></LanguageProvider>);
+  const menu=screen.getByLabelText(/^Категория/);
+  expect(within(menu).getAllByRole('option').map(option=>option.textContent)).toEqual(['Без категория','Travel','Other','Храна']);
+  expect(within(menu).getByRole('option',{name:'Храна'})).toHaveValue('a');
 });

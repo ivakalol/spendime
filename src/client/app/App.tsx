@@ -1,3 +1,4 @@
+import { useLanguage } from '../i18n';
 import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { queryClient } from './queryClient';
@@ -39,10 +40,11 @@ export function LegacyRedirect() {
 }
 
 function RouteMetadata() {
+  const {t} = useLanguage();
   const { pathname } = useLocation();
   useEffect(() => {
     const meta = pageMetadata(pathname);
-    document.title = meta.title;
+    document.title = pathname.startsWith('/app') ? `${t('Your finances')} · Spendime` : meta.title;
     const set = (selector: string, attribute: string, value: string) => {
       let node = document.head.querySelector<HTMLMetaElement>(`meta[${selector}="${attribute}"]`);
       if (!node) { node = document.createElement('meta'); node.setAttribute(selector, attribute); document.head.append(node); }
@@ -56,7 +58,7 @@ function RouteMetadata() {
     let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (!canonical) { canonical = document.createElement('link'); canonical.rel = 'canonical'; document.head.append(canonical); }
     canonical.href = `${publicOrigin}${meta.path}`;
-  }, [pathname]);
+  }, [pathname, t]);
   return null;
 }
 

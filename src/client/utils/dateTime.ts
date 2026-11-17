@@ -1,9 +1,10 @@
+import { interfaceLocale } from '../i18n';
 export function formatInTimezone(value: string, timezone: string, options: Intl.DateTimeFormatOptions = {}): string {
-  return new Intl.DateTimeFormat(undefined, { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short', ...options }).format(new Date(value));
+  return new Intl.DateTimeFormat(interfaceLocale(), { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short', ...options }).format(new Date(value));
 }
 // Calendar dates have no timezone offset; format them without moving their day.
 export function formatCalendarDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
+  return new Intl.DateTimeFormat(interfaceLocale(), { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`));
 }
 export function todayInTimezone(timezone: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());

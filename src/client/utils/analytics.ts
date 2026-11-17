@@ -1,3 +1,4 @@
+import { getLanguage, translate } from '../i18n';
 // Ledger precision is four decimal places. Numbers are used only for chart geometry.
 export function units(value: string): bigint {
   const negative = value.startsWith('-');
@@ -10,11 +11,11 @@ export function decimal(value: bigint): string {
 }
 export function spendingChange(current: string, previous: string): string {
   const before = units(previous), now = units(current);
-  if (before <= 0n) return 'No positive spending in the previous period';
+  if (before <= 0n) return translate(getLanguage(), 'No positive spending in the previous period');
   const change = (now - before) * 1000n / before;
-  if (change === 0n) return 'Unchanged from the previous period';
+  if (change === 0n) return translate(getLanguage(), 'Unchanged from the previous period');
   const absolute = change < 0n ? -change : change;
-  return `${absolute / 10n}.${absolute % 10n}% ${change > 0n ? 'more' : 'less'} than the previous period`;
+  return translate(getLanguage(), change > 0n ? '{percent}% more than the previous period' : '{percent}% less than the previous period', {percent: `${absolute / 10n}${getLanguage() === 'bg' ? ',' : '.'}${absolute % 10n}`});
 }
 type Category = { categoryId: string | null; categoryName: string; actualSpending: string; currency: string };
 export function categoryBreakdown(rows: Category[], currency: string) {

@@ -9,6 +9,7 @@ const useDashboard=vi.fn(),useTransactions=vi.fn();
 const profile=vi.hoisted(()=>({baseCurrency:'EUR',timezone:'UTC',displayName:'Test',onboardingCompletedAt:'2026-01-01',customMonthEnabled:false,monthStartDay:1}));
 vi.mock('../../src/client/api/queries',()=>({
   useMe:()=>({data:profile}),
+  useCategories:()=>({data:[]}),
   useDashboard:(...args:unknown[])=>useDashboard(...args),
   useTransactions:(...args:unknown[])=>useTransactions(...args),
   useSavePreferences:()=>({mutate:vi.fn()}),

@@ -1,3 +1,4 @@
+import { interfaceLocale } from '../i18n';
 const DECIMAL = /^([+-]?)(\d+)(?:\.(\d+))?$/;
 
 // Remove storage padding when loading a form, without rounding meaningful digits.
@@ -24,7 +25,7 @@ function parts(value: string, fractionDigits = 2) {
 
 export function formatMoney(value: string | null | undefined, currency = 'EUR', locale?: string): string {
   const safe = value ?? '0';
-  const resolvedLocale = locale ?? globalThis.navigator?.language ?? 'en';
+  const resolvedLocale = locale ?? interfaceLocale();
   const formatter = new Intl.NumberFormat(resolvedLocale, { style: 'currency', currency, currencyDisplay: 'symbol' });
   const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
   const { negative, whole, fraction } = parts(safe, digits);
@@ -37,7 +38,7 @@ export function formatPercent(value: string | null | undefined): string {
   if (value == null) return '—';
   const { negative, whole, fraction } = parts(value, 2);
   const positive = !negative && !/^0(?:\.0+)?$/.test(value);
-  return `${positive ? '+' : negative ? '−' : ''}${whole}.${fraction}%`;
+  return `${positive ? '+' : negative ? '−' : ''}${whole}${interfaceLocale() === 'bg-BG' ? ',' : '.'}${fraction}%`;
 }
 
 export function decimalSign(value: string | null | undefined): -1 | 0 | 1 {

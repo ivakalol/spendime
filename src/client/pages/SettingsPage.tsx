@@ -84,7 +84,7 @@ export default function SettingsPage() {
           </div>
           <FormError error={save.error} />
           {save.isSuccess && <p role="status" className="flex items-center gap-2 text-sm text-emerald-800"><Check className="size-4" />{t('Preferences saved.')}</p>}
-          <Button loading={save.isPending} disabled={!dirty}><Save className="size-4" />Save preferences</Button>
+          <Button loading={save.isPending} disabled={!dirty}><Save className="size-4" />{t("Save preferences")}</Button>
           </fieldset>
         </form>
       </Card>
@@ -93,11 +93,11 @@ export default function SettingsPage() {
           <dl className="mt-4 grid gap-4 text-sm"><div><dt className="text-muted">{t('Name')}</dt><dd className="break-words font-semibold">{me.data?.displayName}</dd></div><div><dt className="text-muted">{t('Email')}</dt><dd className="break-words font-semibold">{me.data?.email}</dd></div></dl>
         </Card>
         <Card><h2 className="mb-4 flex items-center gap-2 font-bold"><Globe2 className="size-5 text-accent" />{t('Language')}</h2>
-          <Field label="Interface language" hint="Language preference is saved on this device."><Select value={language} onChange={event => setLanguage(event.target.value as Language)}><option value="en">English</option><option value="bg">Bulgarian</option></Select></Field>
+          <Field label="Interface language" hint="Language preference is saved on this device."><Select value={language} onChange={event => setLanguage(event.target.value as Language)}><option value="en">{t("English")}</option><option value="bg">{t("Bulgarian")}</option></Select></Field>
         </Card>
         <Card><h2 className="flex items-center gap-2 font-bold"><ShieldCheck className="size-5 text-accent" />{t('Privacy & security')}</h2>
           <p className="mt-3 text-sm leading-relaxed text-muted">{t('Your financial data belongs to your account. Sign out on shared devices when you are finished.')}</p>
-          <div className="mt-3 flex flex-wrap gap-x-5 text-sm"><Link className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" to="/privacy">Privacy Policy</Link><Link className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" to="/terms">Terms of Service</Link></div>
+          <div className="mt-3 flex flex-wrap gap-x-5 text-sm"><Link className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" to="/privacy">{t("Privacy Policy")}</Link><Link className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" to="/terms">{t("Terms of Service")}</Link></div>
         </Card>
       </div>
     </div>
