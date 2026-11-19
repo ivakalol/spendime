@@ -347,3 +347,23 @@ expense, or mark a received income as **Someone paid me back** and choose its
 expenses. No category selection or duplicate bank movement is needed.
 
 Existing installations need `013_split_reimbursements.sql` after migration 012.
+
+## Money lent to another person
+
+Migration: `014_money_lent.sql`, after migration 013, before deploying the new code.
+A loan remains one outgoing ledger movement (`kind: "expense"`) with
+`isLending: true`, required `loanBorrower`, and optional `loanDueOn` (date).
+Use the standard method with no category, asset, liability, schedule or spread dates.
+Existing payments can be reclassified via PATCH without another debit.
+
+Loans are excluded from actual spending and utility costs. Their outgoing and
+incoming bank movements remain in balances and actual net cash flow. Use the
+existing repayment links/splits for money returned, excluded from income.
+Responses include `outstandingAmount` and `reimbursedAmount`; these recalculate
+after partial, full, edited or voided repayments. Dashboard `moneyLent` totals
+all outstanding loans by currency, regardless of selected reporting period.
+`GET /api/transactions?lending=true` filters loans. Names are searchable.
+Bank categorization is locked for loans to preserve this classification.
+To correct a loan back to ordinary spending, clear `isLending`, `loanBorrower`
+and `loanDueOn` together. Changing the type of movement or reducing/voiding
+a loan with linked repayments remains protected by the repayment rules.

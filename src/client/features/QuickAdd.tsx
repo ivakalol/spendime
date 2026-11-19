@@ -1,3 +1,4 @@
+import { LendingFields } from './LendingFields';
 import { RepaymentDetails } from './RepaymentDetails';
 import { categoryLabel } from '../utils/categoryLabel';
 import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, CalendarDays, Clock3, PackageOpen, Undo2 } from 'lucide-react';
@@ -9,9 +10,10 @@ import { ScrollRail } from '../components/ScrollRail';
 import { useLanguage } from '../i18n';
 import { browserTimezone, localInputNow, zonedInputToIso } from '../utils/dateTime';
 
-const modes: Array<{ value: TransactionKind | 'amortized'; label: string; icon: typeof ArrowUpRight }> = [
+const modes: Array<{ value: TransactionKind | 'amortized' | 'lending'; label: string; icon: typeof ArrowUpRight }> = [
   { value: 'expense', label: 'Expense', icon: ArrowUpRight }, { value: 'income', label: 'Income', icon: ArrowDownLeft },
   { value: 'reimbursement', label: 'Paid back', icon: Undo2 },
+  { value: 'lending', label: 'Money lent', icon: ArrowUpRight },
   { value: 'refund', label: 'Refund', icon: ArrowDownLeft },
   { value: 'amortized', label: 'Spread cost', icon: CalendarDays }, { value: 'transfer', label: 'Transfer', icon: ArrowRightLeft },
   { value: 'asset_purchase', label: 'Asset buy', icon: PackageOpen }, { value: 'liability_payment', label: 'Debt payment', icon: Clock3 },
@@ -28,6 +30,8 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
   const [mode, setMode] = useState<(typeof modes)[number]['value']>(reimbursing ? 'reimbursement' : 'expense');
   const [invalidRepayment, setInvalidRepayment] = useState(true);
   const [amount, setAmount] = useState('');
+  const [borrower, setBorrower] = useState('');
+  const [dueOn, setDueOn] = useState<string | null>(null);
   const [source, setSource] = useState('');
   const [destination, setDestination] = useState(accounts.data?.some(item => item.id === reimbursing?.sourceAccountId && !item.isArchived) ? reimbursing?.sourceAccountId ?? '' : '');
   const [category, setCategory] = useState(reimbursing?.categoryId ?? '');
@@ -47,7 +51,7 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
   const [days, setDays] = useState('365');
   const activeAccounts = accounts.data?.filter((item) => !item.isArchived) ?? [];
   const currency = activeAccounts.find((item) => item.id === (['income','refund','reimbursement'].includes(mode) ? destination : source))?.currency ?? me.data?.baseCurrency ?? 'EUR';
-  const needsSource = ['expense', 'amortized', 'transfer', 'asset_purchase', 'liability_payment'].includes(mode);
+  const needsSource = ['expense', 'amortized', 'lending', 'transfer', 'asset_purchase', 'liability_payment'].includes(mode);
   const needsDestination = ['income', 'refund', 'reimbursement', 'transfer'].includes(mode);
   const categoryOptions = useMemo(() => categories.data?.filter((item) => !item.isArchived && (item.kind === 'both' || item.kind === (mode === 'income' ? 'income' : 'expense'))) ?? [], [categories.data, mode]);
   useEffect(() => {
@@ -59,12 +63,12 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (mutation.isPending || (mode === 'reimbursement' && invalidRepayment)) return;
-    const kind: TransactionKind = mode === 'amortized' ? 'expense' : mode;
+    const kind: TransactionKind = ['amortized','lending'].includes(mode) ? 'expense' : mode as TransactionKind;
     const start = when.slice(0, 10);
     const endDate = new Date(`${start}T12:00:00Z`);
     endDate.setUTCDate(endDate.getUTCDate() + Math.max(1, parseInt(days || '1', 10)) - 1);
     const payload: TransactionInput = {
-      kind,
+      kind, isLending:mode==='lending',loanBorrower:mode==='lending'?borrower:null,loanDueOn:mode==='lending'?dueOn:null,
       originalTransactionId: mode === 'reimbursement' ? original || null : null,
       reimbursementAllocations: mode === 'reimbursement' ? shares : [],
       method: mode === 'amortized' ? 'amortized' : 'standard',
@@ -102,6 +106,7 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
       {categories.isError && mode !== "transfer" && <ErrorState error={categories.error} retry={() => categories.refetch()} />}
       {mode === "asset_purchase" && assets.isError && <ErrorState error={assets.error} retry={() => assets.refetch()} />}
       {mode === "liability_payment" && liabilities.isError && <ErrorState error={liabilities.error} retry={() => liabilities.refetch()} />}
+      {mode === 'lending' && <LendingFields borrower={borrower} dueOn={dueOn} onChange={(name,date)=>{setBorrower(name);setDueOn(date);}}/>}
       <Field label="Amount"><div className="relative"><Input className="money-value h-14 pr-16 text-2xl font-bold tracking-tight sm:h-16 sm:text-3xl" inputMode="decimal" pattern="\d+([.,]\d{1,4})?" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} required /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded-lg bg-brand/[.06] px-2 py-1 text-xs font-bold text-muted">{currency}</span></div></Field>
       {needsSource && <Field label={mode === 'transfer' ? 'From account' : 'Pay from'}><Select disabled={accounts.isPending || (accounts.isError && !accounts.data)} value={source} onChange={(event) => setSource(event.target.value)} required><option value="">{t("Choose account")}</option>{activeAccounts.map((account) => <option translate="no" key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</Select></Field>}
       {needsDestination && <Field label={mode === 'transfer' ? 'To account' : 'Receive into'} error={invalidTransfer ? 'Choose different accounts with the same currency.' : undefined}><Select disabled={accounts.isPending || (accounts.isError && !accounts.data)} value={destination} onChange={(event) => setDestination(event.target.value)} required><option value="">{t("Choose account")}</option>{activeAccounts.map((account) => <option translate="no" key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</Select></Field>}

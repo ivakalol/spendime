@@ -30,7 +30,7 @@ export function ExpenseLinkPicker({ value, onChange, currency, initialExpense, a
   const wrongExpense = Boolean(selected.data && (selected.data.currency !== currency || selected.data.kind !== 'expense' || selected.data.voidedAt));
   const invalid = !selected.data || wrongExpense || exceeds || selected.isError;
   useEffect(() => { onValidityChange?.(invalid); }, [invalid, onValidityChange]);
-  const label = (item: Transaction) => `${item.description || item.merchant || t('Expense')} · ${item.occurredAt.slice(0, 10)} · ${formatMoney(item.amount, item.currency)}`;
+  const label = (item: Transaction) => `${(item.isLending ? t('Money lent to {name}',{name:item.loanBorrower ?? ''}) : item.description || item.merchant || t('Expense'))} · ${item.occurredAt.slice(0, 10)} · ${formatMoney(item.amount, item.currency)}`;
   return <div className="grid gap-3 rounded-2xl border border-brand/10 bg-brand/[.025] p-4">
     <Field label="Search expenses"><Input type="search" value={search} maxLength={120} placeholder="e.g. Happy" onChange={event => { setSearch(event.target.value); setPage(0); }} /></Field>
     <Field label="Money back for" hint="Choose the exact payment. Its category is used automatically." error={exceeds ? 'Money paid back exceeds the remaining expense.' : wrongExpense ? 'Choose an active expense in the same currency.' : undefined}>

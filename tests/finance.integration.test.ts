@@ -481,4 +481,24 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     expect(Number((await agentA.get(`/api/transactions/${hotel}`).expect(200)).body.data.netExpenseAmount)).toBe(100);
     expect(Number((await agentA.get(`/api/transactions/${food}`).expect(200)).body.data.netExpenseAmount)).toBe(60);
   });
+  it('tracks money lent and linked repayments without counting either as ordinary spending or income', async () => {
+    const account=(await agentA.post('/api/accounts').send({name:'Lending test',kind:'checking',currency:'EUR',openingBalance:'200'}).expect(201)).body.data.id;
+    const payment=(await agentA.post('/api/transactions').send({kind:'expense',sourceAccountId:account,amount:'100',currency:'EUR',occurredAt:'2038-01-10T12:00:00Z'}).expect(201)).body.data.id;
+    const before=(await agentA.get(`/api/accounts/${account}`).expect(200)).body.data.currentBalance;
+    await agentA.patch(`/api/transactions/${payment}`).send({isLending:true,loanBorrower:'Alex',loanDueOn:'2038-02-10'}).expect(200);
+    expect((await agentA.get(`/api/accounts/${account}`).expect(200)).body.data.currentBalance).toBe(before);
+    let data=(await agentA.get('/api/dashboard?timeframe=monthly&anchor=2038-01-10').expect(200)).body.data;
+    expect(Number(data.cashFlow[0].actualSpending)).toBe(0);
+    expect(Number(data.moneyLent.find((row:any)=>row.currency==='EUR').outstandingAmount)).toBe(100);
+    const received=(await agentA.post('/api/transactions').send({kind:'income',destinationAccountId:account,amount:'40',currency:'EUR',occurredAt:'2038-02-10T12:00:00Z'}).expect(201)).body.data.id;
+    await agentA.patch(`/api/transactions/${received}`).send({kind:'reimbursement',originalTransactionId:payment}).expect(200);
+    expect(Number((await agentA.get(`/api/transactions/${payment}`).expect(200)).body.data.outstandingAmount)).toBe(60);
+    data=(await agentA.get('/api/dashboard?timeframe=monthly&anchor=2038-02-10').expect(200)).body.data;
+    expect(Number(data.cashFlow[0].actualSpending)).toBe(0);
+    expect(Number(data.cashFlow[0].actualIncome)).toBe(0);
+    await agentB.patch(`/api/transactions/${payment}`).send({loanBorrower:'Someone else'}).expect(404);
+    await agentA.delete(`/api/transactions/${received}`).expect(204);
+    expect(Number((await agentA.get(`/api/transactions/${payment}`).expect(200)).body.data.outstandingAmount)).toBe(100);
+    expect((await agentA.get('/api/transactions?lending=true').expect(200)).body.data.some((row:any)=>row.id===payment)).toBe(true);
+  });
 });

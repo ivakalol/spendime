@@ -11,7 +11,7 @@ export function ReceivedPaymentPicker({ expense, onSelect, onClose }: { expense:
   const [page, setPage] = useState(0);
   const query = useTransactions(new URLSearchParams({kind:'income',search,limit:'25',offset:String(page*25),sort:'occurredAt',direction:'desc'}));
   return <Modal open title="Choose received payment" description="Select the bank transfer you already received. It will be linked to the expense without adding money twice." onClose={onClose}>
-    <p className="mb-3 font-semibold" translate="no">{expense.description || expense.merchant || t('Expense')} · {formatMoney(expense.amount,expense.currency)}</p>
+    <p className="mb-3 font-semibold" translate="no">{expense.isLending ? t('Money lent to {name}',{name:expense.loanBorrower ?? ''}) : expense.description || expense.merchant || t('Expense')} · {formatMoney(expense.amount,expense.currency)}</p>
     <Field label="Search received payments"><Input type="search" value={search} onChange={event=>{setSearch(event.target.value);setPage(0);}} maxLength={120}/></Field>
     {query.isPending && <p role="status">{t('Loading accounts…')}</p>}
     {query.isError && <ErrorState error={query.error} retry={()=>query.refetch()}/>}

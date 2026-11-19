@@ -84,7 +84,7 @@ export async function editTransaction(
   if (current.kind !== input.kind && !convertingToTransfer && !reclassifyingReceipt) {
     throw new ApiError(409, 'immutable_transaction_kind', 'Transaction kind cannot be changed.');
   }
-  if (convertingToTransfer) {
+  if (convertingToTransfer || (input.isLending && !current.isLending)) {
     if (input.method !== 'standard' || input.categoryId || input.assetId || input.liabilityId || input.recurringRuleId || input.amortizationStart || input.amortizationEnd) {
       throw new ApiError(400, 'invalid_transfer_conversion', 'A transfer cannot retain expense categories, schedules or spread-cost dates.');
     }
@@ -92,7 +92,7 @@ export async function editTransaction(
       JOIN transactions t ON t.id=r.refund_transaction_id
       WHERE r.original_transaction_id=$1 AND t.voided_at IS NULL LIMIT 1`, [id]);
     if (refunds.rows.length) {
-      throw new ApiError(409, 'expense_has_refunds', 'An expense with linked refunds cannot become a transfer.');
+      throw new ApiError(409, 'expense_has_refunds', input.isLending ? 'An expense with linked refunds cannot become money lent.' : 'An expense with linked refunds cannot become a transfer.');
     }
   }
   if (current.kind === 'asset_purchase' && current.assetId !== input.assetId) {

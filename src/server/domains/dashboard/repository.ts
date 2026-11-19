@@ -178,12 +178,15 @@ export async function getDashboard(
   const balanceTotals=(await client.query(`SELECT b.currency,sum(b.current_balance)::numeric AS balance
     FROM account_balances b JOIN accounts a ON a.id=b.account_id WHERE NOT a.is_archived
     GROUP BY b.currency ORDER BY b.currency`)).rows;
-  const recentTransactions=(await client.query(`SELECT t.id,t.kind,CASE WHEN t.kind='expense' THEN t.spending_amount ELSE t.amount END AS amount,t.currency,t.occurred_at AS "occurredAt",
-    COALESCE(t.description,t.merchant,c.name,replace(t.kind::text,'_',' ')) AS title
+  const moneyLent=(await client.query(`SELECT currency,sum(outstanding_amount)::numeric AS "outstandingAmount",count(*)::integer AS "peoplePayments"
+    FROM transaction_spending WHERE is_lending AND voided_at IS NULL AND outstanding_amount>0
+    GROUP BY currency ORDER BY currency`)).rows;
+  const recentTransactions=(await client.query(`SELECT t.id,CASE WHEN t.is_lending THEN 'lending' ELSE t.kind::text END AS kind,CASE WHEN t.is_lending THEN t.amount WHEN t.kind='expense' THEN t.spending_amount ELSE t.amount END AS amount,t.currency,t.occurred_at AS "occurredAt",
+    CASE WHEN t.is_lending THEN t.loan_borrower ELSE COALESCE(t.description,t.merchant,c.name,replace(t.kind::text,'_',' ')) END AS title
     FROM transaction_spending t LEFT JOIN categories c ON c.id=t.effective_category_id
     WHERE t.voided_at IS NULL AND t.occurred_at >= $1 AND t.occurred_at < $2
     ORDER BY t.occurred_at DESC,t.id DESC LIMIT 6`,range)).rows;
-  return {timeframe,bounds,comparisonBounds,previousCashFlow,balanceTotals,recentTransactions,cashFlow,utilityImpact,assetSummary,liabilitySummary,
+  return {moneyLent,timeframe,bounds,comparisonBounds,previousCashFlow,balanceTotals,recentTransactions,cashFlow,utilityImpact,assetSummary,liabilitySummary,
     spendingByCategory,accountBalances,trends:{actualCashFlow:actualTrend,
       utilityImpact:utilityTrend,assetUnrealizedGainChange:assetGrowthTrend}};
 }

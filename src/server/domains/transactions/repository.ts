@@ -7,10 +7,11 @@ export const TRANSACTION_SELECT = `SELECT
   t.destination_account_id AS "destinationAccountId",
   t.effective_category_id AS "categoryId", t.asset_id AS "assetId",
   t.liability_id AS "liabilityId", t.recurring_rule_id AS "recurringRuleId",
+  t.is_lending AS "isLending",t.loan_borrower AS "loanBorrower",t.loan_due_on::text AS "loanDueOn",t.outstanding_amount AS "outstandingAmount",
   t.reimbursement_allocations AS "reimbursementAllocations",
   t.original_transaction_id AS "originalTransactionId",
   (SELECT COALESCE(o.description,o.merchant,'Expense') FROM transactions o WHERE o.id=t.original_transaction_id) AS "originalTransactionTitle",
-  t.reimbursed_amount AS "reimbursedAmount", t.spending_amount AS "netExpenseAmount",
+  t.reimbursed_amount AS "reimbursedAmount", CASE WHEN t.is_lending THEN t.outstanding_amount ELSE t.spending_amount END AS "netExpenseAmount",
   t.amount, t.currency,
   to_char(t.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt",
   (SELECT CASE WHEN (t.occurred_at AT TIME ZONE (SELECT timezone FROM users WHERE id=t.user_id))::date=bt.occurred_on
@@ -36,6 +37,7 @@ export interface TransactionFilters {
   categoryId: string | undefined;
   kind: string | undefined;
   search?: string | undefined;
+  lending?: boolean | undefined;
   assetId: string | undefined;
   liabilityId: string | undefined;
   includeVoided: boolean;
@@ -59,7 +61,8 @@ export async function listTransactions(client: pg.PoolClient, filters: Transacti
     );
   }
   if (filters.categoryId) add('t.effective_category_id = ?::uuid', filters.categoryId);
-  if (filters.search) add("concat_ws(' ',t.description,t.merchant) ILIKE ?", '%' + filters.search.replace(/[\\%_]/g, match => '\\' + match) + '%');
+  if (filters.lending) conditions.push('t.is_lending');
+  if (filters.search) add("concat_ws(' ',t.description,t.merchant,t.loan_borrower) ILIKE ?", '%' + filters.search.replace(/[\\%_]/g, match => '\\' + match) + '%');
   if (filters.kind) add('t.kind = ?::transaction_kind', filters.kind);
   if (filters.assetId) add('t.asset_id = ?::uuid', filters.assetId);
   if (filters.liabilityId) add('t.liability_id = ?::uuid', filters.liabilityId);
@@ -86,15 +89,15 @@ export async function insertTransaction(
     `INSERT INTO transactions (
        user_id, kind, method, source_account_id, destination_account_id,
        category_id, asset_id, liability_id, recurring_rule_id, amount, currency,
-       occurred_at, description, merchant, amortization_start, amortization_end, original_transaction_id, reimbursement_allocations
+       occurred_at, description, merchant, amortization_start, amortization_end, original_transaction_id, reimbursement_allocations, is_lending, loan_borrower, loan_due_on
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
      ) RETURNING id`,
     [
       userId, input.kind, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd, input.originalTransactionId ?? null, JSON.stringify(input.reimbursementAllocations ?? []),
+      input.amortizationStart, input.amortizationEnd, input.originalTransactionId ?? null, JSON.stringify(input.reimbursementAllocations ?? []), input.isLending ?? false, input.loanBorrower ?? null, input.loanDueOn ?? null,
     ],
   );
   return getTransaction(client, result.rows[0]!.id);
@@ -108,13 +111,13 @@ export async function updateTransaction(
        method = $2, source_account_id = $3, destination_account_id = $4,
        category_id = $5, asset_id = $6, liability_id = $7, recurring_rule_id = $8,
        amount = $9, currency = $10, occurred_at = $11, description = $12,
-       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16, original_transaction_id = $17, reimbursement_allocations = $18
+       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16, original_transaction_id = $17, reimbursement_allocations = $18, is_lending = $19, loan_borrower = $20, loan_due_on = $21
      WHERE id = $1 AND voided_at IS NULL RETURNING id`,
     [
       id, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd, input.kind, input.originalTransactionId ?? null, JSON.stringify(input.reimbursementAllocations ?? []),
+      input.amortizationStart, input.amortizationEnd, input.kind, input.originalTransactionId ?? null, JSON.stringify(input.reimbursementAllocations ?? []), input.isLending ?? false, input.loanBorrower ?? null, input.loanDueOn ?? null,
     ],
   );
   return result.rows[0] ? getTransaction(client, id) : undefined;

@@ -26,6 +26,27 @@ async function save(fetchMock: ReturnType<typeof setup>) {
   return JSON.parse(String(patches[0]?.[1]?.body));
 }
 describe('editing expense treatment', () => {
+  it('marks an existing bank payment as money lent, keeping its account and amount', async () => {
+    const fetchMock = setup({categoryId:'food'});
+    await userEvent.selectOptions(screen.getByLabelText('Expense type'),'lending');
+    expect(screen.queryByLabelText('Category')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Who owes you?'),'Alex');
+    const {fireEvent} = await import('@testing-library/react');
+    fireEvent.change(screen.getByLabelText('Expected back by'),{target:{value:'2026-12-15'}});
+    expect(await save(fetchMock)).toMatchObject({kind:'expense',isLending:true,loanBorrower:'Alex',loanDueOn:'2026-12-15',amount:'20.00',sourceAccountId:'a',destinationAccountId:null,categoryId:null,method:'standard'});
+  });
+  it('shows the remaining balance and repayment status on a loan', () => {
+    render(<TransactionRow item={{...transaction,isLending:true,loanBorrower:'Alex',amount:'100',reimbursedAmount:'40',outstandingAmount:'60'}} timezone="Europe/Sofia" accounts={[account]} categories={[]} onVoid={vi.fn()} onReimburse={vi.fn()}/>);
+    expect(screen.getByText('Money lent to Alex')).toBeInTheDocument();
+    expect(screen.getByText('Partly repaid')).toBeInTheDocument();
+    expect(screen.getByText('Still owed to you')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Link repayment'})).toBeInTheDocument();
+  });
+  it('clears loan details when correcting a loan back to ordinary spending', async () => {
+    const fetchMock = setup({isLending:true,loanBorrower:'Alex',loanDueOn:'2026-12-15'});
+    await userEvent.selectOptions(screen.getByLabelText('Expense type'),'standard');
+    expect(await save(fetchMock)).toMatchObject({isLending:false,loanBorrower:null,loanDueOn:null});
+  });
   it('shows Happy as a 20 euro personal expense while preserving the paid and returned amounts', () => {
     render(<TransactionRow item={{ ...transaction, description: 'Happy', amount: '100', netExpenseAmount: '20', reimbursedAmount: '80' }} timezone="Europe/Sofia" accounts={[account]} categories={[]} onVoid={vi.fn()} />);
     expect(screen.getByText('Happy')).toBeInTheDocument();

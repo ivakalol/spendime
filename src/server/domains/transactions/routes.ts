@@ -35,6 +35,9 @@ const transactionSchema = z.object({
   destinationAccountId: nullableId,
   categoryId: nullableId,
   originalTransactionId: nullableId,
+  isLending: z.boolean().optional().default(false),
+  loanBorrower: z.string().trim().min(1).max(120).nullable().optional().default(null),
+  loanDueOn: dateSchema.nullable().optional().default(null),
   reimbursementAllocations: z.array(z.object({expenseId:uuidSchema,amount:positiveMoneySchema}).strict()).max(100).optional().default([]),
   assetId: nullableId,
   liabilityId: nullableId,
@@ -50,6 +53,8 @@ const transactionSchema = z.object({
   const fail = (message: string, path: string) => context.addIssue({
     code: 'custom', message, path: [path],
   });
+  if (value.isLending && (value.kind !== 'expense' || value.method !== 'standard' || !value.loanBorrower || value.categoryId || value.assetId || value.liabilityId || value.recurringRuleId)) fail('Enter who owes you and use a standard payment without a category.', 'loanBorrower');
+  if (!value.isLending && (value.loanBorrower || value.loanDueOn)) fail('Loan details require Money lent.', 'isLending');
   if (value.kind === 'reimbursement' && value.method !== 'standard') {
     fail('Money paid back must be a standard transaction.', 'method');
   }
@@ -93,6 +98,7 @@ const listSchema = paginationSchema.extend({
     'expense', 'income', 'refund', 'reimbursement', 'transfer', 'asset_purchase', 'asset_sale',
     'liability_drawdown', 'liability_payment', 'adjustment',
   ]).optional(),
+  lending: z.enum(['true','false']).optional(),
   search: z.string().trim().max(120).optional(),
   assetId: uuidSchema.optional(),
   liabilityId: uuidSchema.optional(),
@@ -116,7 +122,7 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
     const result = await inUserTransaction(pool, request, (client) => listTransactions(client, {
       limit: query.limit, offset: query.offset, from: query.from, to: query.to,
       accountId: query.accountId, categoryId: query.categoryId, kind: query.kind,
-      assetId: query.assetId, liabilityId: query.liabilityId, search: query.search,
+      assetId: query.assetId, liabilityId: query.liabilityId, search: query.search, lending: query.lending === 'true' ? true : undefined,
       includeVoided: query.includeVoided,
       sortSql: sortColumns[query.sort],
       directionSql: query.direction === 'asc' ? 'ASC' : 'DESC',
@@ -148,7 +154,7 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
           ...pickFields(current,[
             'kind','method','sourceAccountId','destinationAccountId','categoryId','assetId',
             'liabilityId','recurringRuleId','amount','currency','occurredAt','description',
-            'merchant','amortizationStart','amortizationEnd','originalTransactionId','reimbursementAllocations',
+            'merchant','amortizationStart','amortizationEnd','originalTransactionId','reimbursementAllocations','isLending','loanBorrower','loanDueOn',
           ]), ...changes,
         };
         if (paymentSchedule !== undefined) {

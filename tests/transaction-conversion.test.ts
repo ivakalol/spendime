@@ -32,6 +32,14 @@ beforeEach(() => {
     ? { rowCount: 1, rows: [{ id: accountId, currency: 'EUR', is_archived: false }] } : { rowCount: 0, rows: [] });
 });
 describe('transaction conversion API', () => {
+  it('accepts lending metadata without creating another transaction', async () => {
+    const response = await request(app).patch(`/transactions/${id}`).send({isLending:true,loanBorrower:' Alex ',loanDueOn:'2026-12-15'}).expect(200);
+    expect(response.body.data).toMatchObject({kind:'expense',isLending:true,loanBorrower:'Alex',loanDueOn:'2026-12-15',sourceAccountId:accountId,amount:'20.2000'});
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it.each([{loanBorrower:null},{method:'amortized'},{categoryId:accountId},{kind:'income',sourceAccountId:null,destinationAccountId:accountId}])('rejects invalid lending metadata: %j', async changes => {
+    await request(app).patch(`/transactions/${id}`).send({isLending:true,loanBorrower:'Alex',...changes}).expect(400);
+  });
   const receipt = { kind: 'reimbursement', originalTransactionId: id, destinationAccountId: accountId, amount: '80', currency: 'EUR', occurredAt: '2026-01-31T12:00:00Z' };
   it('accepts a new reimbursement with a destination account', async () => {
     const response = await request(app).post('/transactions').send(receipt).expect(201);
