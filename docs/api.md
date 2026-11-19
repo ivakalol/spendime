@@ -327,3 +327,23 @@ duplicate. Clear `originalTransactionId` when changing back to income.
 `GET /api/transactions?kind=expense&search=Happy` searches description and merchant;
 normal pagination applies. `GET /api/transactions?kind=reimbursement` lists repayments.
 Bank reconciliation can match manually recorded repayments to incoming credits.
+
+## A received transfer covering several expenses
+
+Reclassify the existing income entry with `kind: "reimbursement"`,
+`originalTransactionId: null`, and `reimbursementAllocations`, for example:
+
+```json
+{"reimbursementAllocations":[{"expenseId":"<hotel uuid>","amount":"50"},{"expenseId":"<dinner uuid>","amount":"30"}]}
+```
+
+Shares must sum exactly to the received amount, be positive and refer to distinct
+active expenses belonging to the same user and using the receipt currency.
+Each share reduces its original expense in its original period and category.
+Editing or voiding the receipt recalculates all linked expenses atomically;
+its balance effect remains one incoming transfer. Single-expense links remain
+supported. The UI lets the user choose the existing received payment from an
+expense, or mark a received income as **Someone paid me back** and choose its
+expenses. No category selection or duplicate bank movement is needed.
+
+Existing installations need `013_split_reimbursements.sql` after migration 012.

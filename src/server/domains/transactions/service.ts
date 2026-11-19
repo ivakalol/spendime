@@ -24,7 +24,7 @@ async function validateReferences(
     }
   }
   // The database takes a linked repayment's category from its original expense.
-  if (input.categoryId && !input.originalTransactionId) {
+  if (input.categoryId && !input.originalTransactionId && !input.reimbursementAllocations?.length) {
     const result = await client.query<{ kind: string; is_archived: boolean }>(
       'SELECT kind, is_archived FROM categories WHERE id = $1', [input.categoryId]);
     const category = result.rows[0];

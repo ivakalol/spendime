@@ -10,11 +10,11 @@ import { TransactionDialog, TransactionRow } from '../../src/client/pages/Transa
 
 const account: Account = { id: 'a', name: 'Revolut', kind: 'checking', currency: 'EUR', openingBalance: '0', currentBalance: '100', institution: null, color: null, icon: null, isArchived: false, createdAt: '', updatedAt: '' };
 const transaction: Transaction = { id: 't', kind: 'expense', method: 'standard', sourceAccountId: 'a', destinationAccountId: null, categoryId: null, assetId: null, liabilityId: null, recurringRuleId: null, amount: '20.0000', currency: 'EUR', occurredAt: '2026-01-31T12:00:00Z', bankOccurredOn: '2026-01-31', bankSynced: true, description: 'ChatGPT subscription', merchant: 'OpenAI', amortizationStart: null, amortizationEnd: null, dailyImpact: null, voidedAt: null, voidReason: null, createdAt: '', updatedAt: '' };
-function setup(overrides: Partial<Transaction> = {}) {
+function setup(overrides: Partial<Transaction> = {}, linkedExpense?: Transaction) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
-  client.setQueryData([...keys.transactions,new URLSearchParams({kind:'expense',search:'',limit:'25',offset:'0',sort:'occurredAt',direction:'desc'}).toString()],{data:[transaction],meta:{total:1}});
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(new Response(JSON.stringify({ data: String(url).includes('?') ? [transaction] : transaction, meta: {total:1} }), { status: 200 })));
-  render(<QueryClientProvider client={client}><TransactionDialog transaction={{ ...transaction, ...overrides }} accounts={[account, { ...account, id: 'cash', name: 'Cash', kind: 'cash' }, { ...account, id: 'usd', name: 'USD account', currency: 'USD' }]} categories={[]} timezone="Europe/Sofia" onClose={vi.fn()} /></QueryClientProvider>);
+  client.setQueryData([...keys.transactions,new URLSearchParams({kind:'expense',search:'',limit:'25',offset:'0',sort:'occurredAt',direction:'desc'}).toString()],{data:[transaction,{...transaction,id:'t2',description:'Trip dinner'}],meta:{total:2}});
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(new Response(JSON.stringify({ data: String(url).includes('?') ? [transaction,{...transaction,id:'t2',description:'Trip dinner'}] : transaction, meta: {total:1} }), { status: 200 })));
+  render(<QueryClientProvider client={client}><TransactionDialog linkedExpense={linkedExpense} markReceived={Boolean(linkedExpense)} transaction={{ ...transaction, ...overrides }} accounts={[account, { ...account, id: 'cash', name: 'Cash', kind: 'cash' }, { ...account, id: 'usd', name: 'USD account', currency: 'USD' }]} categories={[]} timezone="Europe/Sofia" onClose={vi.fn()} /></QueryClientProvider>);
   return fetchMock;
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -35,10 +35,32 @@ describe('editing expense treatment', () => {
   it('reclassifies imported income as money paid back without adding another entry', async () => {
     const fetchMock = setup({ kind: 'income', sourceAccountId: null, destinationAccountId: 'a' });
     await userEvent.selectOptions(screen.getByLabelText('Money received as'), 'reimbursement');
-    expect(screen.getByText(/the repayment is not income/)).toBeInTheDocument();
+    expect(screen.getByText(/No new bank movement is created/)).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Save changes'})).toBeDisabled();
     await userEvent.selectOptions(screen.getByLabelText('Money back for'),'t');
     expect(await save(fetchMock)).toMatchObject({ kind: 'reimbursement', amount: '20.00', sourceAccountId: null, destinationAccountId: 'a', originalTransactionId: 't' });
+  });
+  it('pairs an existing bank credit selected from an expense without creating a transaction', async () => {
+    const fetchMock = setup({id:'incoming',kind:'income',sourceAccountId:null,destinationAccountId:'a'},transaction);
+    expect(screen.getByLabelText('Money back for')).toHaveValue('t');
+    expect(screen.queryByLabelText('Category')).not.toBeInTheDocument();
+    const body = await save(fetchMock);
+    expect(body).toMatchObject({kind:'reimbursement',originalTransactionId:'t',amount:'20.00'});
+    expect(fetchMock.mock.calls.some(([,init])=>init?.method==='POST')).toBe(false);
+    expect(fetchMock.mock.calls.find(([,init])=>init?.method==='PATCH')?.[0]).toBe('/api/transactions/incoming');
+  });
+  it('allocates one imported transfer across two expenses', async () => {
+    const fetchMock = setup({kind:'income',sourceAccountId:null,destinationAccountId:'a'});
+    await userEvent.selectOptions(screen.getByLabelText('Money received as'),'reimbursement');
+    await userEvent.selectOptions(screen.getByLabelText('What does this repayment cover?'),'several');
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.change(screen.getByLabelText('Returned for this expense'),{target:{value:'10'}});
+    await userEvent.selectOptions(screen.getByLabelText('Money back for'),'t');
+    await userEvent.click(screen.getByRole('button',{name:'Add another expense'}));
+    await userEvent.selectOptions(screen.getAllByLabelText('Money back for')[1]!,'t2');
+    expect(screen.getByText('Left to allocate: €0.00')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Category')).not.toBeInTheDocument();
+    expect(await save(fetchMock)).toMatchObject({kind:'reimbursement',originalTransactionId:null,reimbursementAllocations:[{expenseId:'t',amount:'10'},{expenseId:'t2',amount:'10.0000'}]});
   });
   it('turns a bank withdrawal into a transfer to cash', async () => {
     const fetchMock = setup({ categoryId: 'food', description: 'Cash withdrawal' });

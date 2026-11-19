@@ -35,6 +35,7 @@ const transactionSchema = z.object({
   destinationAccountId: nullableId,
   categoryId: nullableId,
   originalTransactionId: nullableId,
+  reimbursementAllocations: z.array(z.object({expenseId:uuidSchema,amount:positiveMoneySchema}).strict()).max(100).optional().default([]),
   assetId: nullableId,
   liabilityId: nullableId,
   recurringRuleId: nullableId,
@@ -52,9 +53,9 @@ const transactionSchema = z.object({
   if (value.kind === 'reimbursement' && value.method !== 'standard') {
     fail('Money paid back must be a standard transaction.', 'method');
   }
-  if (value.kind === 'reimbursement' && !value.originalTransactionId) {
-    fail('Choose an expense for this repayment.', 'originalTransactionId');
-  }
+
+  if (value.reimbursementAllocations.length && (value.kind !== 'reimbursement' || value.originalTransactionId)) fail('Invalid repayment split.', 'reimbursementAllocations');
+  if (value.kind === 'reimbursement' && !value.originalTransactionId && !value.reimbursementAllocations.length) fail('Choose an expense for this repayment.', 'originalTransactionId');
   if (value.method === 'amortized') {
     if (value.kind !== 'expense') fail('Only expenses can be amortized.', 'method');
     if (!value.amortizationStart || !value.amortizationEnd ||
@@ -147,7 +148,7 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
           ...pickFields(current,[
             'kind','method','sourceAccountId','destinationAccountId','categoryId','assetId',
             'liabilityId','recurringRuleId','amount','currency','occurredAt','description',
-            'merchant','amortizationStart','amortizationEnd','originalTransactionId',
+            'merchant','amortizationStart','amortizationEnd','originalTransactionId','reimbursementAllocations',
           ]), ...changes,
         };
         if (paymentSchedule !== undefined) {

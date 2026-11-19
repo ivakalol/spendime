@@ -678,5 +678,21 @@ export const bulgarianMessages: Readonly<Record<string, string>> = {
   "Money paid back exceeds the remaining expense.": "Върнатата сума надвишава остатъка по разхода.",
   "Update or remove the linked repayments first.": "Първо редактирай или премахни свързаните връщания.",
   "Money in minus money out, on their actual dates": "Получени минус платени пари, на действителните им дати",
-  "Choose an expense for this repayment.": "Избери разхода, за който ти връщат пари."
+  "Choose an expense for this repayment.": "Избери разхода, за който ти връщат пари.",
+  "What does this repayment cover?": "За кои разходи получи тези пари?",
+  "One expense": "Един разход",
+  "Several expenses": "Няколко разхода",
+  "One bank transfer, several expenses. Enter how much was returned for each payment. Each original expense keeps its own category.": "Един превод за няколко разхода. Въведи колко ти е върнато за всяко плащане. Всеки разход запазва своята категория.",
+  "Returned for this expense": "Върната сума за този разход",
+  "Remove expense": "Премахни разхода",
+  "Add another expense": "Добави още разход",
+  "Split equally": "Разпредели поравно",
+  "Left to allocate: {amount}": "Остава за разпределяне: {amount}",
+  "Choose received payment": "Избери получения превод",
+  "Select the bank transfer you already received. It will be linked to the expense without adding money twice.": "Избери превода, който вече си получил. Ще се свърже с разхода, без сумата да се добавя повторно.",
+  "Search received payments": "Търси получен превод",
+  "No received payments found. Try another search or page.": "Няма намерени преводи. Опитай друго търсене или страница.",
+  "Choose which expenses this received payment covers. No new bank movement is created.": "Избери кои разходи покрива този превод. Не се създава ново банково движение.",
+  "Covers {count} expenses": "За {count} разхода",
+  "Allocate the full repayment once, using positive amounts.": "Разпредели цялата върната сума с положителни стойности, без повтарящи се разходи."
 };

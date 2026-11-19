@@ -8,6 +8,7 @@ interface PgErrorLike {
 export function translateDatabaseError(error: unknown): never {
   const pgError = error as PgErrorLike;
   const reimbursementErrors: Record<string, string> = {
+    reimbursement_split_invalid: 'Allocate the full repayment once, using positive amounts.',
     reimbursement_original_invalid: 'Choose an active expense in the same currency.',
     reimbursement_amount_exceeded: 'Money paid back exceeds the remaining expense.',
     expense_has_reimbursements: 'Update or remove the linked repayments first.',

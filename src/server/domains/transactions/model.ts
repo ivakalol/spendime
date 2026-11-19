@@ -4,6 +4,7 @@ export interface TransactionWrite {
   method: 'standard' | 'amortized' | 'recurring';
   sourceAccountId: string | null;
   destinationAccountId: string | null;
+  reimbursementAllocations?: Array<{expenseId:string;amount:string}>;
   originalTransactionId?: string | null;
   categoryId: string | null;
   assetId: string | null;

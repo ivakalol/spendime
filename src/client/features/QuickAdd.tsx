@@ -1,4 +1,4 @@
-import { ExpenseLinkPicker } from './ExpenseLinkPicker';
+import { RepaymentDetails } from './RepaymentDetails';
 import { categoryLabel } from '../utils/categoryLabel';
 import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, CalendarDays, Clock3, PackageOpen, Undo2 } from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
@@ -31,6 +31,7 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
   const [source, setSource] = useState('');
   const [destination, setDestination] = useState(accounts.data?.some(item => item.id === reimbursing?.sourceAccountId && !item.isArchived) ? reimbursing?.sourceAccountId ?? '' : '');
   const [category, setCategory] = useState(reimbursing?.categoryId ?? '');
+  const [shares, setShares] = useState<Array<{expenseId:string;amount:string}>>([]);
   const [original, setOriginal] = useState(reimbursing?.id ?? '');
   const [asset, setAsset] = useState('');
   const [liability, setLiability] = useState('');
@@ -57,14 +58,15 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (mutation.isPending || (mode === 'reimbursement' && (!original || invalidRepayment))) return;
+    if (mutation.isPending || (mode === 'reimbursement' && invalidRepayment)) return;
     const kind: TransactionKind = mode === 'amortized' ? 'expense' : mode;
     const start = when.slice(0, 10);
     const endDate = new Date(`${start}T12:00:00Z`);
     endDate.setUTCDate(endDate.getUTCDate() + Math.max(1, parseInt(days || '1', 10)) - 1);
     const payload: TransactionInput = {
       kind,
-      originalTransactionId: mode === 'reimbursement' ? original : null,
+      originalTransactionId: mode === 'reimbursement' ? original || null : null,
+      reimbursementAllocations: mode === 'reimbursement' ? shares : [],
       method: mode === 'amortized' ? 'amortized' : 'standard',
       sourceAccountId: needsSource ? source || null : null,
       destinationAccountId: needsDestination ? destination || null : null,
@@ -103,16 +105,16 @@ export function QuickAdd({ open, onClose, reimbursing }: { open: boolean; onClos
       <Field label="Amount"><div className="relative"><Input className="money-value h-14 pr-16 text-2xl font-bold tracking-tight sm:h-16 sm:text-3xl" inputMode="decimal" pattern="\d+([.,]\d{1,4})?" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} required /><span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 rounded-lg bg-brand/[.06] px-2 py-1 text-xs font-bold text-muted">{currency}</span></div></Field>
       {needsSource && <Field label={mode === 'transfer' ? 'From account' : 'Pay from'}><Select disabled={accounts.isPending || (accounts.isError && !accounts.data)} value={source} onChange={(event) => setSource(event.target.value)} required><option value="">{t("Choose account")}</option>{activeAccounts.map((account) => <option translate="no" key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</Select></Field>}
       {needsDestination && <Field label={mode === 'transfer' ? 'To account' : 'Receive into'} error={invalidTransfer ? 'Choose different accounts with the same currency.' : undefined}><Select disabled={accounts.isPending || (accounts.isError && !accounts.data)} value={destination} onChange={(event) => setDestination(event.target.value)} required><option value="">{t("Choose account")}</option>{activeAccounts.map((account) => <option translate="no" key={account.id} value={account.id}>{account.name} · {account.currency}</option>)}</Select></Field>}
-      {mode === 'reimbursement' && <ExpenseLinkPicker onValidityChange={setInvalidRepayment} value={original} initialExpense={reimbursing} currency={currency} amount={amount} onChange={(id, expense) => { setOriginal(id); setCategory(expense?.categoryId ?? ''); }} />}
+      {mode === 'reimbursement' && <RepaymentDetails original={original} shares={shares} amount={amount} currency={currency} initialExpense={reimbursing} onValidityChange={setInvalidRepayment} onChange={(id, items, inherited) => { setOriginal(id ?? ""); setShares(items); if (inherited !== undefined) setCategory(inherited ?? ""); }} />}
       {mode === 'asset_purchase' && <Field label="Asset"><Select disabled={assets.isPending || (assets.isError && !assets.data)} value={asset} onChange={(event) => setAsset(event.target.value)} required><option value="">{t("Choose asset")}</option>{assets.data?.filter((item) => item.currency === currency && !item.isArchived).map((item) => <option translate="no" key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>}
       {mode === 'liability_payment' && <Field label="Liability"><Select disabled={liabilities.isPending || (liabilities.isError && !liabilities.data)} value={liability} onChange={(event) => setLiability(event.target.value)} required><option value="">{t("Choose liability")}</option>{liabilities.data?.filter((item) => item.currency === currency && item.status === 'active').map((item) => <option translate="no" key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>}
-      {['expense', 'income', 'refund', 'amortized', 'asset_purchase', 'liability_payment'].includes(mode) && <Field label="Category" hint={mode === 'reimbursement' ? 'Use the original expense category so its spending is reduced.' : 'What kind of spending or income was this? Optional, but useful for your spending breakdown.'}><Select disabled={categories.isPending || (categories.isError && !categories.data)} value={category} onChange={(event) => setCategory(event.target.value)}><option value="">{t("Uncategorized")}</option>{categoryOptions.map((item) => <option translate="no" key={item.id} value={item.id}>{categoryLabel(item,t)}</option>)}</Select></Field>}
+      {['expense', 'income', 'refund', 'amortized', 'asset_purchase', 'liability_payment'].includes(mode) && <Field label="Category" hint={mode === 'reimbursement' ? 'The category labels this repayment. Linked expenses keep their own categories.' : 'What kind of spending or income was this? Optional, but useful for your spending breakdown.'}><Select disabled={categories.isPending || (categories.isError && !categories.data)} value={category} onChange={(event) => setCategory(event.target.value)}><option value="">{t("Uncategorized")}</option>{categoryOptions.map((item) => <option translate="no" key={item.id} value={item.id}>{categoryLabel(item,t)}</option>)}</Select></Field>}
       {mode === 'amortized' && <div className="rounded-2xl border border-amber-200/60 bg-amber-50/80 p-4 shadow-sm"><Field label="Expected use (days)" hint="Your balance and spending include the full price today. The daily cost is also spread over the days you use it."><Input type="number" inputMode="numeric" min="1" max="36500" value={days} onChange={(event) => setDays(event.target.value)} required /></Field></div>}
       <Field label={`${t('Date & time')} · ${me.data?.timezone ?? ''}`} hint={me.data?.timezone !== browserTimezone() ? t('Your device is in {timezone}; this entry uses your profile timezone.', {timezone: browserTimezone()}) : undefined}><Input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} required /></Field>
       <Field label="Note" hint="Optional"><Input value={description} maxLength={2000} onChange={(event) => setDescription(event.target.value)} placeholder="What was this for?" /></Field>
       {accounts.isSuccess && activeAccounts.length === 0 && <p className="rounded-2xl border border-amber-200/60 bg-amber-50 p-3 text-sm text-amber-900">{t('Create a money account before adding an entry.')}</p>}
       <FormError error={mutation.error} />
-      <div className="modal-actions"><Button type="button" variant="secondary" className="flex-1" disabled={mutation.isPending} onClick={onClose}>{t("Cancel")}</Button><Button type="submit" className="flex-1" loading={mutation.isPending} disabled={!online || activeAccounts.length === 0 || invalidTransfer || (mode === 'reimbursement' && (!original || invalidRepayment))}>{!online ? t("Offline") : t("Save entry")}</Button></div>
+      <div className="modal-actions"><Button type="button" variant="secondary" className="flex-1" disabled={mutation.isPending} onClick={onClose}>{t("Cancel")}</Button><Button type="submit" className="flex-1" loading={mutation.isPending} disabled={!online || activeAccounts.length === 0 || invalidTransfer || (mode === 'reimbursement' && invalidRepayment)}>{!online ? t("Offline") : t("Save entry")}</Button></div>
     </form>
   </Modal>;
 }

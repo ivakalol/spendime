@@ -26,6 +26,7 @@ export interface Transaction {
   occurredAt: string; bankOccurredOn?: string | null; bankSynced?: boolean; description: string | null; merchant: string | null; amortizationStart: string | null;
   amortizationEnd: string | null; dailyImpact: DecimalString | null; voidedAt: string | null; voidReason: string | null;
   createdAt: string; updatedAt: string;
+  reimbursementAllocations?: Array<{expenseId:string;amount:string}>;
   originalTransactionId?: string | null;
   originalTransactionTitle?: string | null;
   reimbursedAmount?: string;
@@ -83,7 +84,7 @@ export interface ApiErrorBody { error?: { code?: string; message?: string; field
 
 export interface AccountInput { name: string; kind: Account['kind']; currency: string; openingBalance: string; institution: string | null; color: string | null; icon: string | null }
 export interface CategoryInput { name: string; kind: Category['kind']; color: string | null; icon: string | null }
-export interface TransactionInput { originalTransactionId?: string | null; kind: TransactionKind; method: TransactionMethod; sourceAccountId: string | null; destinationAccountId: string | null; categoryId: string | null; assetId: string | null; liabilityId: string | null; recurringRuleId: string | null; amount: string; currency: string; occurredAt: string; description: string | null; merchant: string | null; amortizationStart: string | null; amortizationEnd: string | null }
+export interface TransactionInput { reimbursementAllocations?: Array<{expenseId:string;amount:string}>; originalTransactionId?: string | null; kind: TransactionKind; method: TransactionMethod; sourceAccountId: string | null; destinationAccountId: string | null; categoryId: string | null; assetId: string | null; liabilityId: string | null; recurringRuleId: string | null; amount: string; currency: string; occurredAt: string; description: string | null; merchant: string | null; amortizationStart: string | null; amortizationEnd: string | null }
 export type PaymentScheduleInput = Pick<RecurringInput, 'name' | 'intervalCount' | 'intervalUnit' | 'startsOn' | 'nextDueOn' | 'endsOn'>;
 export type TransactionUpdateInput = TransactionInput & { paymentSchedule?: PaymentScheduleInput };
 export interface AssetInput { name: string; classification: Asset['classification']; currency: string; acquisitionDate: string; initialContribution: string; currentValue: string; depreciation: Asset['depreciation']; usefulLifeDays: number | null; residualValue: string | null; notes: string | null }

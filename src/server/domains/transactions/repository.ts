@@ -7,6 +7,7 @@ export const TRANSACTION_SELECT = `SELECT
   t.destination_account_id AS "destinationAccountId",
   t.effective_category_id AS "categoryId", t.asset_id AS "assetId",
   t.liability_id AS "liabilityId", t.recurring_rule_id AS "recurringRuleId",
+  t.reimbursement_allocations AS "reimbursementAllocations",
   t.original_transaction_id AS "originalTransactionId",
   (SELECT COALESCE(o.description,o.merchant,'Expense') FROM transactions o WHERE o.id=t.original_transaction_id) AS "originalTransactionTitle",
   t.reimbursed_amount AS "reimbursedAmount", t.spending_amount AS "netExpenseAmount",
@@ -85,15 +86,15 @@ export async function insertTransaction(
     `INSERT INTO transactions (
        user_id, kind, method, source_account_id, destination_account_id,
        category_id, asset_id, liability_id, recurring_rule_id, amount, currency,
-       occurred_at, description, merchant, amortization_start, amortization_end, original_transaction_id
+       occurred_at, description, merchant, amortization_start, amortization_end, original_transaction_id, reimbursement_allocations
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
      ) RETURNING id`,
     [
       userId, input.kind, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd, input.originalTransactionId ?? null,
+      input.amortizationStart, input.amortizationEnd, input.originalTransactionId ?? null, JSON.stringify(input.reimbursementAllocations ?? []),
     ],
   );
   return getTransaction(client, result.rows[0]!.id);
@@ -107,13 +108,13 @@ export async function updateTransaction(
        method = $2, source_account_id = $3, destination_account_id = $4,
        category_id = $5, asset_id = $6, liability_id = $7, recurring_rule_id = $8,
        amount = $9, currency = $10, occurred_at = $11, description = $12,
-       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16, original_transaction_id = $17
+       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16, original_transaction_id = $17, reimbursement_allocations = $18
      WHERE id = $1 AND voided_at IS NULL RETURNING id`,
     [
       id, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd, input.kind, input.originalTransactionId ?? null,
+      input.amortizationStart, input.amortizationEnd, input.kind, input.originalTransactionId ?? null, JSON.stringify(input.reimbursementAllocations ?? []),
     ],
   );
   return result.rows[0] ? getTransaction(client, id) : undefined;
