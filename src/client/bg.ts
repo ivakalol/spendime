@@ -715,5 +715,17 @@ export const bulgarianMessages: Readonly<Record<string, string>> = {
   "View money lent": "Виж дадените назаем пари",
   "Enter who owes you and use a standard payment without a category.": "Въведи кой ти дължи парите и избери стандартно плащане без категория.",
   "Loan details require Money lent.": "Данните за заем изискват тип „Дадени назаем пари“.",
-  "An expense with linked refunds cannot become money lent.": "Разход със свързани възстановени суми не може да стане дадена назаем сума."
+  "An expense with linked refunds cannot become money lent.": "Разход със свързани възстановени суми не може да стане дадена назаем сума.",
+  "Current balance": "Текуща наличност",
+  "Enter the balance you see in your bank app or count in your wallet.": "Въведи наличността от банковото приложение или преброй парите в портфейла.",
+  "Recorded balance: {amount}": "Записана наличност: {amount}",
+  "One Unrecorded expense of {amount} will be added.": "Ще се добави един разход „Незаписани“ за {amount}.",
+  "One Unrecorded income entry of {amount} will be added.": "Ще се добави един приход „Незаписани“ за {amount}.",
+  "Only the missing difference is recorded today. Your opening balance and existing transactions stay unchanged.": "Само липсващата разлика се записва с днешна дата. Началната наличност и съществуващите транзакции остават непроменени.",
+  "Unrecorded": "Незаписани",
+  "Balance correction · Unrecorded": "Корекция на наличността · Незаписани",
+  "The balance changed. Close and reopen Manage account, then try again.": "Наличността е променена. Затвори и отвори отново управлението на сметката и опитай пак.",
+  "Restore this account before correcting its balance.": "Възстанови сметката, преди да коригираш наличността.",
+  "Refresh the account before correcting its balance.": "Обнови сметката, преди да коригираш наличността.",
+  "Correct the current balance without changing the opening balance.": "Коригирай текущата наличност, без да променяш началната."
 };

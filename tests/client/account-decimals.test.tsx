@@ -16,6 +16,18 @@ function setup(value: Account | null = null) {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe('account decimal entry', () => {
+  it('previews one missing expense and submits the target plus original balance',async()=>{
+    const fetchMock=vi.spyOn(globalThis,'fetch').mockImplementation(()=>Promise.resolve(new Response(JSON.stringify({data:{id:'a'}}),{status:200})));
+    setup({id:'a',name:'Revolut',kind:'checking',currency:'EUR',openingBalance:'306.0700',currentBalance:'393.3200',institution:null,color:null,icon:null,isArchived:false,createdAt:'',updatedAt:''});
+    expect(screen.getByLabelText('Opening balance')).toHaveAttribute('readonly');
+    await userEvent.clear(screen.getByLabelText('Current balance'));
+    await userEvent.type(screen.getByLabelText('Current balance'),'373,32');
+    expect(screen.getByText('One Unrecorded expense of €20.00 will be added.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button',{name:'Save account'}));
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalled());
+    const patch=fetchMock.mock.calls.find(([,init])=>init?.method==='PATCH');
+    expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({currentBalance:'373,32',expectedCurrentBalance:'393.3200',openingBalance:'306.07'});
+  });
   it.each(['200.20', '200,20', '1,00'])('submits an account with %s without requiring extra zeros', async (value) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: { id: 'a' } }), { status: 201 }));
     setup();

@@ -367,3 +367,14 @@ Bank categorization is locked for loans to preserve this classification.
 To correct a loan back to ordinary spending, clear `isLending`, `loanBorrower`
 and `loanDueOn` together. Changing the type of movement or reducing/voiding
 a loan with linked repayments remains protected by the repayment rules.
+
+## Correcting the current account balance
+
+PATCH an account with `currentBalance` (the actual balance) and
+`expectedCurrentBalance` (the recorded balance shown when opening Manage).
+The server rejects a stale balance with 409. It creates exactly one difference
+entry in the Unrecorded category: expense for a lower balance, income for a
+higher balance, nothing when equal. The correction is dated now and included
+in reports; opening balance and historical transactions are preserved. Account
+settings and the entry save atomically. Archived accounts must be restored first.
+No database migration is needed.

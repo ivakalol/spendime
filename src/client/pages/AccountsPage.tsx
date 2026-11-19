@@ -1,3 +1,4 @@
+import { moneyUnits, moneyDecimal } from '../../shared/moneyMath';
 import { CurrencySelect } from '../components/CurrencySelect';
 import { Archive, Pencil, Plus, RotateCcw, Trash2, WalletCards } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
@@ -48,19 +49,24 @@ export function AccountDialog({ value, open, onClose }: { value: Account | null 
   const me = useMe();
   const [form, setForm] = useState<AccountInput>(() => value ? toInput(value) : {...blank, currency: me.data?.baseCurrency ?? 'EUR'});
   useEffect(() => setForm(value ? toInput(value) : {...blank,currency:me.data?.baseCurrency??'EUR'}), [value, open, me.data?.baseCurrency]);
+  const [actualBalance,setActualBalance] = useState(value ? moneyInputValue(value.currentBalance) : '');
+  useEffect(()=>setActualBalance(value ? moneyInputValue(value.currentBalance) : ''),[value,open]);
+  const validBalance = /^-?(?:0|[1-9]\d{0,14})(?:[.,]\d{1,4})?$/.test(actualBalance);
+  const difference = value && validBalance ? moneyUnits(actualBalance)-moneyUnits(value.currentBalance) : 0n;
   const create = useCreateAccount();
   const update = useUpdateAccount(value?.id ?? '');
   const archive = useArchiveAccount();
   const mutation = value ? update : create;
-  const submit = (event: FormEvent) => { event.preventDefault(); mutation.mutate(form, { onSuccess: onClose }); };
+  const submit = (event: FormEvent) => { event.preventDefault(); mutation.mutate({...form,...(value && difference !== 0n ? {currentBalance:actualBalance,expectedCurrentBalance:value.currentBalance} : {})}, { onSuccess: onClose }); };
   return <Modal open={open} onClose={onClose} title={value ? 'Manage account' : 'New money account'}><form className="grid gap-5" onSubmit={submit}>
     <Field label="Name"><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
     <div className="grid grid-cols-2 gap-3"><Field label="Type"><Select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as Account['kind'] })}>{['cash', 'checking', 'savings', 'credit', 'investment', 'other'].map((kind) => <option key={kind} value={kind}>{kind}</option>)}</Select></Field><Field label="Currency" hint={value ? "Currency is fixed to protect your account history." : "Choose the currency this account actually holds."}><CurrencySelect value={form.currency} onChange={currency => setForm({ ...form, currency })} disabled={Boolean(value)} /></Field></div>
-    <Field label="Opening balance" hint="The balance before the first transaction you record here. This is not income."><Input inputMode="decimal" value={form.openingBalance} onChange={(event) => setForm({ ...form, openingBalance: event.target.value })} required /></Field>
+    {value && <div className="grid gap-3 rounded-2xl border border-brand/10 bg-brand/[.035] p-4"><Field label="Current balance" hint="Enter the balance you see in your bank app or count in your wallet."><Input inputMode="decimal" value={actualBalance} onChange={event=>setActualBalance(event.target.value)} required /></Field><p className="text-xs text-muted">{t('Recorded balance: {amount}',{amount:formatMoney(value.currentBalance,value.currency)})}</p>{validBalance && difference !== 0n && <p aria-live="polite" className="text-sm font-semibold">{t(difference<0n?'One Unrecorded expense of {amount} will be added.':'One Unrecorded income entry of {amount} will be added.',{amount:formatMoney(moneyDecimal(difference<0n?-difference:difference),value.currency)})}</p>}<p className="text-xs text-muted">{t('Only the missing difference is recorded today. Your opening balance and existing transactions stay unchanged.')}</p></div>}
+    <Field label="Opening balance" hint="The balance before the first transaction you record here. This is not income."><Input inputMode="decimal" value={form.openingBalance} readOnly={Boolean(value)} onChange={(event) => setForm({ ...form, openingBalance: event.target.value })} required /></Field>
     <Field label="Institution" hint="Optional"><Input value={form.institution ?? ''} onChange={(event) => setForm({ ...form, institution: event.target.value || null })} /></Field>
     <Field label="Color"><Input type="color" value={form.color ?? '#315f61'} onChange={(event) => setForm({ ...form, color: event.target.value })} /></Field>
     <FormError error={mutation.error || archive.error} />
-    <div className="modal-actions">{value && <Button type="button" variant="danger" onClick={() => archive.mutate(value.id, { onSuccess: onClose })} disabled={archive.isPending}><Archive className="size-4" />{t("Archive")}</Button>}<Button className={value ? 'ml-auto' : 'w-full'} loading={mutation.isPending}>{t("Save account")}</Button></div>
+    <div className="modal-actions">{value && <Button type="button" variant="danger" onClick={() => archive.mutate(value.id, { onSuccess: onClose })} disabled={archive.isPending}><Archive className="size-4" />{t("Archive")}</Button>}<Button className={value ? 'ml-auto' : 'w-full'} loading={mutation.isPending} disabled={Boolean(value) && !validBalance}>{t("Save account")}</Button></div>
   </form></Modal>;
 }
 

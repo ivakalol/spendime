@@ -31,7 +31,7 @@ function useDomainMutation<TInput, TResult>(path: string | ((input: TInput) => s
   return useMutation({ mutationFn: (input: TInput) => mutate<TResult>(typeof path === 'function' ? path(input) : path, method, method === 'DELETE' ? undefined : input), onSuccess: async () => { await Promise.all(invalidates.map((key) => queryClient.invalidateQueries({ queryKey: key }))); } });
 }
 export const useCreateAccount = () => useDomainMutation<AccountInput, Account>('/api/accounts', 'POST', [keys.accounts, keys.dashboard]);
-export const useUpdateAccount = (id: string) => useDomainMutation<AccountInput, Account>(`/api/accounts/${id}`, 'PATCH', [keys.accounts, keys.dashboard]);
+export const useUpdateAccount = (id: string) => useDomainMutation<AccountInput, Account>(`/api/accounts/${id}`, 'PATCH', [keys.accounts, keys.dashboard, keys.transactions, keys.categories]);
 export const useArchiveAccount = () => useDomainMutation<string, void>((id) => `/api/accounts/${id}`, 'DELETE', [keys.accounts, keys.dashboard]);
 export const useRestoreAccount = (id: string) => useDomainMutation<void, Account>(`/api/accounts/${id}/restore`, 'POST', [keys.accounts, keys.dashboard]);
 export const usePermanentlyDeleteAccount = () => useDomainMutation<string, void>((id) => `/api/accounts/${id}/permanent`, 'DELETE', [keys.accounts, keys.dashboard]);

@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { z } from 'zod';
 import { translateDatabaseError } from '../../db/errors.js';
 import { ApiError } from '../../errors.js';
+import { moneyDecimal, moneyUnits } from '../../../shared/moneyMath.js';
 import { requireAuthentication } from '../../middleware/authenticate.js';
 import { inUserTransaction, pickFields, requireRow } from '../../routes/helpers.js';
 import { booleanQuerySchema, currencySchema, signedMoneySchema, uuidSchema } from '../../validation/common.js';
@@ -52,16 +53,41 @@ export function createAccountsRouter(pool: pg.Pool): Router {
   router.patch('/:id', async (request, response) => {
     const id = uuidSchema.parse(request.params.id);
     try {
-      const data = await inUserTransaction(pool, request, async (client) => {
+      const data = await inUserTransaction(pool, request, async (client, userId) => {
+        const { currentBalance, expectedCurrentBalance, ...changes } = request.body;
+        const balance = z.object({currentBalance:signedMoneySchema.optional(),expectedCurrentBalance:signedMoneySchema.optional()}).parse({currentBalance,expectedCurrentBalance});
+        if (balance.currentBalance !== undefined) {
+          if (balance.expectedCurrentBalance === undefined) throw new ApiError(400,'balance_snapshot_required','Refresh the account before correcting its balance.');
+          // Briefly serialize ledger writers, including bank ingestion, while computing the correction.
+          await client.query('LOCK TABLE transactions IN SHARE ROW EXCLUSIVE MODE');
+          await client.query('SELECT id FROM accounts WHERE id=$1 FOR UPDATE',[id]);
+        }
         const current = requireRow(await getAccount(client, id));
         const input = accountSchema.parse({
           ...pickFields(current,['name','kind','currency','openingBalance','institution','color','icon']),
-          ...request.body,
+          ...changes,
         }) as AccountWrite;
         if (input.currency !== current.currency) {
           throw new ApiError(409, 'currency_immutable', 'Account currency cannot be changed.');
         }
-        return requireRow(await updateAccount(client, id, input));
+        if (balance.currentBalance !== undefined) {
+          if (current.isArchived) throw new ApiError(409,'account_archived','Restore this account before correcting its balance.');
+          if (moneyUnits(current.currentBalance) !== moneyUnits(balance.expectedCurrentBalance!)) throw new ApiError(409,'balance_changed','The balance changed. Close and reopen Manage account, then try again.');
+          if (moneyUnits(input.openingBalance) !== moneyUnits(current.openingBalance)) throw new ApiError(400,'opening_balance_conflict','Correct the current balance without changing the opening balance.');
+        }
+        requireRow(await updateAccount(client, id, input));
+        if (balance.currentBalance !== undefined) {
+          const difference = moneyUnits(balance.currentBalance)-moneyUnits(current.currentBalance);
+          if (difference !== 0n) {
+            const category = (await client.query<{id:string}>(`INSERT INTO categories(user_id,name,kind,is_system)
+              VALUES($1,'Unrecorded','both',true) ON CONFLICT(user_id,name)
+              DO UPDATE SET kind='both',is_archived=false RETURNING id`,[userId])).rows[0]!;
+            await client.query(`INSERT INTO transactions(user_id,kind,source_account_id,destination_account_id,category_id,amount,currency,occurred_at,description)
+              VALUES($1,$2,$3,$4,$5,$6,$7,now(),'Balance correction · Unrecorded')`,
+              [userId,difference<0n?'expense':'income',difference<0n?id:null,difference>0n?id:null,category.id,moneyDecimal(difference<0n?-difference:difference),current.currency]);
+          }
+        }
+        return requireRow(await getAccount(client,id));
       });
       response.json({ data });
     } catch (error) { translateDatabaseError(error); }

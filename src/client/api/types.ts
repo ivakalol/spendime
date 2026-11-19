@@ -87,7 +87,7 @@ export interface ApiEnvelope<T> { data: T }
 export interface PagedEnvelope<T> { data: T[]; meta: { limit: number; offset: number; total: number } }
 export interface ApiErrorBody { error?: { code?: string; message?: string; fields?: Array<{ field: string; message: string }> } }
 
-export interface AccountInput { name: string; kind: Account['kind']; currency: string; openingBalance: string; institution: string | null; color: string | null; icon: string | null }
+export interface AccountInput { currentBalance?: string; expectedCurrentBalance?: string; name: string; kind: Account['kind']; currency: string; openingBalance: string; institution: string | null; color: string | null; icon: string | null }
 export interface CategoryInput { name: string; kind: Category['kind']; color: string | null; icon: string | null }
 export interface TransactionInput { isLending?: boolean; loanBorrower?: string | null; loanDueOn?: string | null; reimbursementAllocations?: Array<{expenseId:string;amount:string}>; originalTransactionId?: string | null; kind: TransactionKind; method: TransactionMethod; sourceAccountId: string | null; destinationAccountId: string | null; categoryId: string | null; assetId: string | null; liabilityId: string | null; recurringRuleId: string | null; amount: string; currency: string; occurredAt: string; description: string | null; merchant: string | null; amortizationStart: string | null; amortizationEnd: string | null }
 export type PaymentScheduleInput = Pick<RecurringInput, 'name' | 'intervalCount' | 'intervalUnit' | 'startsOn' | 'nextDueOn' | 'endsOn'>;

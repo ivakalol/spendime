@@ -501,4 +501,23 @@ describe('financial CRUD and analytics with PostgreSQL RLS', () => {
     expect(Number((await agentA.get(`/api/transactions/${payment}`).expect(200)).body.data.outstandingAmount)).toBe(100);
     expect((await agentA.get('/api/transactions?lending=true').expect(200)).body.data.some((row:any)=>row.id===payment)).toBe(true);
   });
+  it('reconciles current balances with one Unrecorded entry and preserves opening history',async()=>{
+    const account=(await agentA.post('/api/accounts').send({name:'Balance check',kind:'checking',currency:'EUR',openingBalance:'393.32'}).expect(201)).body.data.id;
+    const result=await agentA.patch(`/api/accounts/${account}`).send({currentBalance:'373.32',expectedCurrentBalance:'393.32'}).expect(200);
+    expect(result.body.data.currentBalance).toBe('373.3200');
+    expect(result.body.data.openingBalance).toBe('393.3200');
+    const entries=(await agentA.get(`/api/transactions?accountId=${account}`).expect(200)).body.data;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({kind:'expense',amount:'20.0000',sourceAccountId:account});
+    const category=(await agentA.get('/api/categories').expect(200)).body.data.find((row:any)=>row.id===entries[0].categoryId);
+    expect(category.name).toBe('Unrecorded');
+    await agentA.patch(`/api/accounts/${account}`).send({currentBalance:'373.32',expectedCurrentBalance:'393.32'}).expect(409);
+    await agentB.patch(`/api/accounts/${account}`).send({currentBalance:'0',expectedCurrentBalance:'373.32'}).expect(404);
+    await agentA.patch(`/api/accounts/${account}`).send({currentBalance:'373.32',expectedCurrentBalance:'373.32'}).expect(200);
+    expect((await agentA.get(`/api/transactions?accountId=${account}`).expect(200)).body.data).toHaveLength(1);
+    await agentA.patch(`/api/accounts/${account}`).send({currentBalance:'380',expectedCurrentBalance:'373.32'}).expect(200);
+    const income=(await agentA.get(`/api/transactions?accountId=${account}&kind=income`).expect(200)).body.data[0];
+    expect(income.amount).toBe('6.6800');
+    expect(income.categoryId).toBe(entries[0].categoryId);
+  });
 });
