@@ -64,7 +64,7 @@ export function createCategoriesRouter(pool: pg.Pool): Router {
             SELECT kind::text FROM transactions WHERE category_id=$1
             UNION ALL SELECT kind::text FROM recurring_rules WHERE category_id=$1
             UNION ALL SELECT CASE direction WHEN 'debit' THEN 'expense' ELSE 'income' END FROM bank_category_rules WHERE category_id=$1
-          ) uses WHERE ($2='income' AND kind IN ('expense','refund')) OR ($2='expense' AND kind='income') LIMIT 1`,[id,input.kind]);
+          ) uses WHERE ($2='income' AND kind IN ('expense','refund','reimbursement')) OR ($2='expense' AND kind='income') LIMIT 1`,[id,input.kind]);
           if (incompatible.rowCount) throw new ApiError(409,'category_kind_in_use','This category is used by incompatible income or expense entries. Choose Both or keep its current type.');
         }
         return requireRow(await updateCategory(client, id, input));

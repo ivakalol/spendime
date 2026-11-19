@@ -27,13 +27,14 @@ const paymentScheduleSchema = z.object({
 const nullableId = uuidSchema.nullable().optional().default(null);
 const transactionSchema = z.object({
   kind: z.enum([
-    'expense', 'income', 'refund', 'transfer', 'asset_purchase', 'asset_sale',
+    'expense', 'income', 'refund', 'reimbursement', 'transfer', 'asset_purchase', 'asset_sale',
     'liability_drawdown', 'liability_payment', 'adjustment',
   ]),
   method: z.enum(['standard', 'amortized', 'recurring']).default('standard'),
   sourceAccountId: nullableId,
   destinationAccountId: nullableId,
   categoryId: nullableId,
+  originalTransactionId: nullableId,
   assetId: nullableId,
   liabilityId: nullableId,
   recurringRuleId: nullableId,
@@ -48,6 +49,12 @@ const transactionSchema = z.object({
   const fail = (message: string, path: string) => context.addIssue({
     code: 'custom', message, path: [path],
   });
+  if (value.kind === 'reimbursement' && value.method !== 'standard') {
+    fail('Money paid back must be a standard transaction.', 'method');
+  }
+  if (value.kind === 'reimbursement' && !value.originalTransactionId) {
+    fail('Choose an expense for this repayment.', 'originalTransactionId');
+  }
   if (value.method === 'amortized') {
     if (value.kind !== 'expense') fail('Only expenses can be amortized.', 'method');
     if (!value.amortizationStart || !value.amortizationEnd ||
@@ -60,11 +67,12 @@ const transactionSchema = z.object({
   if ((value.method === 'recurring') !== Boolean(value.recurringRuleId)) {
     fail('Recurring transactions require exactly one recurring rule.', 'recurringRuleId');
   }
+  if (value.originalTransactionId && value.kind !== 'reimbursement') fail('Only money paid back can link to an expense.', 'originalTransactionId');
   const source = Boolean(value.sourceAccountId);
   const destination = Boolean(value.destinationAccountId);
   const validAccounts =
     (value.kind === 'expense' && source && !destination) ||
-    (['income','refund'].includes(value.kind) && !source && destination) ||
+    (['income','refund','reimbursement'].includes(value.kind) && !source && destination) ||
     (value.kind === 'transfer' && source && destination &&
       value.sourceAccountId !== value.destinationAccountId) ||
     (value.kind === 'asset_purchase' && source && !destination && Boolean(value.assetId)) ||
@@ -81,9 +89,10 @@ const listSchema = paginationSchema.extend({
   accountId: uuidSchema.optional(),
   categoryId: uuidSchema.optional(),
   kind: z.enum([
-    'expense', 'income', 'refund', 'transfer', 'asset_purchase', 'asset_sale',
+    'expense', 'income', 'refund', 'reimbursement', 'transfer', 'asset_purchase', 'asset_sale',
     'liability_drawdown', 'liability_payment', 'adjustment',
   ]).optional(),
+  search: z.string().trim().max(120).optional(),
   assetId: uuidSchema.optional(),
   liabilityId: uuidSchema.optional(),
   includeVoided: z.enum(['true', 'false']).optional().transform((value) => value === 'true'),
@@ -106,7 +115,7 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
     const result = await inUserTransaction(pool, request, (client) => listTransactions(client, {
       limit: query.limit, offset: query.offset, from: query.from, to: query.to,
       accountId: query.accountId, categoryId: query.categoryId, kind: query.kind,
-      assetId: query.assetId, liabilityId: query.liabilityId,
+      assetId: query.assetId, liabilityId: query.liabilityId, search: query.search,
       includeVoided: query.includeVoided,
       sortSql: sortColumns[query.sort],
       directionSql: query.direction === 'asc' ? 'ASC' : 'DESC',
@@ -138,7 +147,7 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
           ...pickFields(current,[
             'kind','method','sourceAccountId','destinationAccountId','categoryId','assetId',
             'liabilityId','recurringRuleId','amount','currency','occurredAt','description',
-            'merchant','amortizationStart','amortizationEnd',
+            'merchant','amortizationStart','amortizationEnd','originalTransactionId',
           ]), ...changes,
         };
         if (paymentSchedule !== undefined) {
@@ -172,9 +181,11 @@ export function createTransactionsRouter(pool: pg.Pool): Router {
   router.delete('/:id', async (request, response) => {
     const id = uuidSchema.parse(request.params.id);
     const reason = z.string().trim().max(250).optional().parse(request.query.reason) ?? null;
-    const success = await inUserTransaction(pool, request, (client) => voidTransaction(client, id, reason));
-    requireRow(success ? true : undefined);
-    response.status(204).send();
+    try {
+      const success = await inUserTransaction(pool, request, (client) => voidTransaction(client, id, reason));
+      requireRow(success ? true : undefined);
+      response.status(204).send();
+    } catch (error) { translateDatabaseError(error); }
   });
   return router;
 }

@@ -74,16 +74,16 @@ export async function getDashboard(
   const range=[bounds.startUtc,bounds.endUtcExclusive];
   const cashFlow=(await client.query(`
     SELECT currency,
-      (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
+      (COALESCE(sum(spending_amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(spending_amount) FILTER(WHERE kind IN ('refund','reimbursement')),0))::numeric AS "actualSpending",
       COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome",
       (COALESCE(sum(amount) FILTER(WHERE kind='income'),0)-
        COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)+
-       COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "ordinaryNetCashFlow",
+       COALESCE(sum(amount) FILTER(WHERE kind IN ('refund','reimbursement')),0))::numeric AS "ordinaryNetCashFlow",
       COALESCE(sum(amount) FILTER(WHERE kind='asset_purchase'),0)::numeric AS "assetPurchases",
       COALESCE(sum(amount) FILTER(WHERE kind='asset_sale'),0)::numeric AS "assetSaleProceeds",
       COALESCE(sum(amount) FILTER(WHERE kind='liability_drawdown'),0)::numeric AS "liabilityDrawdowns",
       COALESCE(sum(amount) FILTER(WHERE kind='liability_payment'),0)::numeric AS "liabilityPayments"
-    FROM transactions WHERE voided_at IS NULL AND occurred_at >= $1 AND occurred_at < $2
+    FROM transaction_spending WHERE voided_at IS NULL AND occurred_at >= $1 AND occurred_at < $2
     GROUP BY currency ORDER BY currency`,range)).rows;
 
   const utilityImpact=(await client.query(`
@@ -106,11 +106,11 @@ export async function getDashboard(
     FROM liabilities WHERE status='active' GROUP BY currency ORDER BY currency`)).rows;
 
   const spendingByCategory=(await client.query(`
-    SELECT t.currency,t.category_id AS "categoryId",COALESCE(c.name,'Uncategorized') AS "categoryName",
-      sum(CASE WHEN t.kind='refund' THEN -t.amount ELSE t.amount END)::numeric AS "actualSpending"
-    FROM transactions t LEFT JOIN categories c ON c.id=t.category_id
-    WHERE t.voided_at IS NULL AND t.kind IN ('expense','refund') AND t.occurred_at >= $1 AND t.occurred_at < $2
-    GROUP BY t.currency,t.category_id,c.name ORDER BY t.currency,"actualSpending" DESC`,range)).rows;
+    SELECT t.currency,t.effective_category_id AS "categoryId",COALESCE(c.name,'Uncategorized') AS "categoryName",
+      sum(CASE WHEN t.kind IN ('refund','reimbursement') THEN -t.spending_amount ELSE t.spending_amount END)::numeric AS "actualSpending"
+    FROM transaction_spending t LEFT JOIN categories c ON c.id=t.effective_category_id
+    WHERE t.voided_at IS NULL AND t.kind IN ('expense','refund','reimbursement') AND t.occurred_at >= $1 AND t.occurred_at < $2
+    GROUP BY t.currency,t.effective_category_id,c.name ORDER BY t.currency,"actualSpending" DESC`,range)).rows;
 
   const accountBalances=(await client.query(`
     SELECT b.account_id AS "accountId",b.name,b.currency,a.opening_balance AS "openingBalance",
@@ -123,11 +123,11 @@ export async function getDashboard(
       (CASE WHEN $3 IN ('6-month','annual','this-year')
         THEN date_trunc('month',occurred_at AT TIME ZONE $4)
         ELSE date_trunc('day',occurred_at AT TIME ZONE $4) END)::text AS "bucketStartLocal",
-      (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
+      (COALESCE(sum(spending_amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(spending_amount) FILTER(WHERE kind IN ('refund','reimbursement')),0))::numeric AS "actualSpending",
       COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome",
       COALESCE(sum(amount) FILTER(WHERE kind='asset_purchase'),0)::numeric AS "assetPurchases"
-    FROM transactions WHERE voided_at IS NULL AND occurred_at >= $1 AND occurred_at < $2
-      AND kind IN ('expense','refund','income','asset_purchase')
+    FROM transaction_spending WHERE voided_at IS NULL AND occurred_at >= $1 AND occurred_at < $2
+      AND kind IN ('expense','refund','reimbursement','income','asset_purchase')
     GROUP BY currency,"bucketStartLocal" ORDER BY "bucketStartLocal",currency`,
     [...range,timeframe,bounds.timezone])).rows;
 
@@ -169,18 +169,18 @@ export async function getDashboard(
       ELSE $4::date END::text AS "endLocalExclusive"`,
     [bounds.startLocal,bounds.endLocalExclusive,previousMonthRange?.from??null,previousMonthRange?.endExclusive??null,timeframe==='this-month'])).rows[0];
   const previousCashFlow=(await client.query(`SELECT currency,
-    (COALESCE(sum(amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(amount) FILTER(WHERE kind='refund'),0))::numeric AS "actualSpending",
+    (COALESCE(sum(spending_amount) FILTER(WHERE kind='expense'),0)-COALESCE(sum(spending_amount) FILTER(WHERE kind IN ('refund','reimbursement')),0))::numeric AS "actualSpending",
     COALESCE(sum(amount) FILTER(WHERE kind='income'),0)::numeric AS "actualIncome"
-    FROM transactions WHERE voided_at IS NULL AND kind IN ('expense','refund','income')
+    FROM transaction_spending WHERE voided_at IS NULL AND kind IN ('expense','refund','reimbursement','income')
       AND occurred_at >= ($1::date::timestamp AT TIME ZONE $3)
       AND occurred_at < ($2::date::timestamp AT TIME ZONE $3)
     GROUP BY currency ORDER BY currency`,[comparisonBounds.startLocal,comparisonBounds.endLocalExclusive,bounds.timezone])).rows;
   const balanceTotals=(await client.query(`SELECT b.currency,sum(b.current_balance)::numeric AS balance
     FROM account_balances b JOIN accounts a ON a.id=b.account_id WHERE NOT a.is_archived
     GROUP BY b.currency ORDER BY b.currency`)).rows;
-  const recentTransactions=(await client.query(`SELECT t.id,t.kind,t.amount,t.currency,t.occurred_at AS "occurredAt",
+  const recentTransactions=(await client.query(`SELECT t.id,t.kind,CASE WHEN t.kind='expense' THEN t.spending_amount ELSE t.amount END AS amount,t.currency,t.occurred_at AS "occurredAt",
     COALESCE(t.description,t.merchant,c.name,replace(t.kind::text,'_',' ')) AS title
-    FROM transactions t LEFT JOIN categories c ON c.id=t.category_id
+    FROM transaction_spending t LEFT JOIN categories c ON c.id=t.effective_category_id
     WHERE t.voided_at IS NULL AND t.occurred_at >= $1 AND t.occurred_at < $2
     ORDER BY t.occurred_at DESC,t.id DESC LIMIT 6`,range)).rows;
   return {timeframe,bounds,comparisonBounds,previousCashFlow,balanceTotals,recentTransactions,cashFlow,utilityImpact,assetSummary,liabilitySummary,

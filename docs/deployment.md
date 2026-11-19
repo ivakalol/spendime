@@ -233,6 +233,23 @@ per-user saved positions. Fresh databases run it automatically.
 Get-Content -Raw database/init/010_category_order.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
 ```
 
+## Money paid back (reimbursements)
+
+Before deploying the updated application to an existing database, apply the
+additive migration below. New database volumes run it automatically. Run it in
+psql's default autocommit mode: the new enum value must commit before it is used
+by the constraint and view. Do not pass `--single-transaction`.
+
+```powershell
+Get-Content -Raw database/init/011_reimbursements.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
+Get-Content -Raw database/init/012_linked_reimbursements.sql | docker compose exec -T postgres sh -c 'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1'
+docker compose up -d --build app banking-worker
+```
+
+Existing transactions keep their type. Reclassify an incoming payment using
+**Edit → Money received as → Paid back**, choosing the specific original expense.
+This updates the existing entry without crediting the account twice.
+
 ## Completely reset the development database
 
 This permanently deletes every database record in the named volume and reruns

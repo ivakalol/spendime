@@ -5,8 +5,11 @@ export const TRANSACTION_SELECT = `SELECT
   t.id, t.kind, t.method,
   t.source_account_id AS "sourceAccountId",
   t.destination_account_id AS "destinationAccountId",
-  t.category_id AS "categoryId", t.asset_id AS "assetId",
+  t.effective_category_id AS "categoryId", t.asset_id AS "assetId",
   t.liability_id AS "liabilityId", t.recurring_rule_id AS "recurringRuleId",
+  t.original_transaction_id AS "originalTransactionId",
+  (SELECT COALESCE(o.description,o.merchant,'Expense') FROM transactions o WHERE o.id=t.original_transaction_id) AS "originalTransactionTitle",
+  t.reimbursed_amount AS "reimbursedAmount", t.spending_amount AS "netExpenseAmount",
   t.amount, t.currency,
   to_char(t.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt",
   (SELECT CASE WHEN (t.occurred_at AT TIME ZONE (SELECT timezone FROM users WHERE id=t.user_id))::date=bt.occurred_on
@@ -17,7 +20,9 @@ export const TRANSACTION_SELECT = `SELECT
   t.description, t.merchant, t.category_locked AS "categoryLocked",
   t.amortization_start AS "amortizationStart",
   t.amortization_end AS "amortizationEnd",
-  t.daily_impact AS "dailyImpact",
+  CASE WHEN t.kind='expense' AND t.method='amortized'
+    THEN round(t.spending_amount/(t.amortization_end-t.amortization_start+1),6)
+    ELSE t.daily_impact END AS "dailyImpact",
   t.voided_at AS "voidedAt", t.void_reason AS "voidReason",
   t.created_at AS "createdAt", t.updated_at AS "updatedAt"`;
 
@@ -29,6 +34,7 @@ export interface TransactionFilters {
   accountId: string | undefined;
   categoryId: string | undefined;
   kind: string | undefined;
+  search?: string | undefined;
   assetId: string | undefined;
   liabilityId: string | undefined;
   includeVoided: boolean;
@@ -51,14 +57,15 @@ export async function listTransactions(client: pg.PoolClient, filters: Transacti
       `(t.source_account_id = $${values.length - 1}::uuid OR t.destination_account_id = $${values.length}::uuid)`,
     );
   }
-  if (filters.categoryId) add('t.category_id = ?::uuid', filters.categoryId);
+  if (filters.categoryId) add('t.effective_category_id = ?::uuid', filters.categoryId);
+  if (filters.search) add("concat_ws(' ',t.description,t.merchant) ILIKE ?", '%' + filters.search.replace(/[\\%_]/g, match => '\\' + match) + '%');
   if (filters.kind) add('t.kind = ?::transaction_kind', filters.kind);
   if (filters.assetId) add('t.asset_id = ?::uuid', filters.assetId);
   if (filters.liabilityId) add('t.liability_id = ?::uuid', filters.liabilityId);
   values.push(filters.limit, filters.offset);
   const result = await client.query(
     `${TRANSACTION_SELECT}, count(*) OVER()::integer AS "totalCount"
-     FROM transactions t WHERE ${conditions.join(' AND ')}
+     FROM transaction_spending t WHERE ${conditions.join(' AND ')}
      ORDER BY ${filters.sortSql} ${filters.directionSql}, t.id ${filters.directionSql}
      LIMIT $${values.length - 1} OFFSET $${values.length}`,
     values,
@@ -68,7 +75,7 @@ export async function listTransactions(client: pg.PoolClient, filters: Transacti
 }
 
 export async function getTransaction(client: pg.PoolClient, id: string): Promise<any | undefined> {
-  return (await client.query(`${TRANSACTION_SELECT} FROM transactions t WHERE t.id = $1`, [id])).rows[0];
+  return (await client.query(`${TRANSACTION_SELECT} FROM transaction_spending t WHERE t.id = $1`, [id])).rows[0];
 }
 
 export async function insertTransaction(
@@ -78,15 +85,15 @@ export async function insertTransaction(
     `INSERT INTO transactions (
        user_id, kind, method, source_account_id, destination_account_id,
        category_id, asset_id, liability_id, recurring_rule_id, amount, currency,
-       occurred_at, description, merchant, amortization_start, amortization_end
+       occurred_at, description, merchant, amortization_start, amortization_end, original_transaction_id
      ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
      ) RETURNING id`,
     [
       userId, input.kind, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd,
+      input.amortizationStart, input.amortizationEnd, input.originalTransactionId ?? null,
     ],
   );
   return getTransaction(client, result.rows[0]!.id);
@@ -100,13 +107,13 @@ export async function updateTransaction(
        method = $2, source_account_id = $3, destination_account_id = $4,
        category_id = $5, asset_id = $6, liability_id = $7, recurring_rule_id = $8,
        amount = $9, currency = $10, occurred_at = $11, description = $12,
-       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16
+       merchant = $13, amortization_start = $14, amortization_end = $15, kind = $16, original_transaction_id = $17
      WHERE id = $1 AND voided_at IS NULL RETURNING id`,
     [
       id, input.method, input.sourceAccountId, input.destinationAccountId,
       input.categoryId, input.assetId, input.liabilityId, input.recurringRuleId,
       input.amount, input.currency, input.occurredAt, input.description, input.merchant,
-      input.amortizationStart, input.amortizationEnd, input.kind,
+      input.amortizationStart, input.amortizationEnd, input.kind, input.originalTransactionId ?? null,
     ],
   );
   return result.rows[0] ? getTransaction(client, id) : undefined;

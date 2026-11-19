@@ -23,11 +23,12 @@ async function validateReferences(
       throw new ApiError(404, 'related_resource_not_found', 'A related resource was not found.');
     }
   }
-  if (input.categoryId) {
+  // The database takes a linked repayment's category from its original expense.
+  if (input.categoryId && !input.originalTransactionId) {
     const result = await client.query<{ kind: string; is_archived: boolean }>(
       'SELECT kind, is_archived FROM categories WHERE id = $1', [input.categoryId]);
     const category = result.rows[0];
-    const expected = input.kind === 'income' ? 'income' : ['expense','refund'].includes(input.kind) ? 'expense' : null;
+    const expected = input.kind === 'income' ? 'income' : ['expense','refund','reimbursement'].includes(input.kind) ? 'expense' : null;
     if (!category || (category.is_archived && input.categoryId !== current?.categoryId) ||
         (expected && ![expected, 'both'].includes(category.kind))) {
       throw new ApiError(404, 'related_resource_not_found', 'A related resource was not found.');
@@ -79,7 +80,8 @@ export async function editTransaction(
   if (!current) return undefined;
   if (current.voidedAt) throw new ApiError(409, 'transaction_voided', 'A voided transaction cannot be edited.');
   const convertingToTransfer = current.kind === 'expense' && input.kind === 'transfer';
-  if (current.kind !== input.kind && !convertingToTransfer) {
+  const reclassifyingReceipt = ['income', 'reimbursement'].includes(current.kind) && ['income', 'reimbursement'].includes(input.kind);
+  if (current.kind !== input.kind && !convertingToTransfer && !reclassifyingReceipt) {
     throw new ApiError(409, 'immutable_transaction_kind', 'Transaction kind cannot be changed.');
   }
   if (convertingToTransfer) {

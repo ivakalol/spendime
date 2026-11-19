@@ -5,25 +5,41 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Account, Transaction } from '../../src/client/api/types';
-import { TransactionDialog } from '../../src/client/pages/TransactionsPage';
+import { keys } from '../../src/client/api/queries';
+import { TransactionDialog, TransactionRow } from '../../src/client/pages/TransactionsPage';
 
 const account: Account = { id: 'a', name: 'Revolut', kind: 'checking', currency: 'EUR', openingBalance: '0', currentBalance: '100', institution: null, color: null, icon: null, isArchived: false, createdAt: '', updatedAt: '' };
 const transaction: Transaction = { id: 't', kind: 'expense', method: 'standard', sourceAccountId: 'a', destinationAccountId: null, categoryId: null, assetId: null, liabilityId: null, recurringRuleId: null, amount: '20.0000', currency: 'EUR', occurredAt: '2026-01-31T12:00:00Z', bankOccurredOn: '2026-01-31', bankSynced: true, description: 'ChatGPT subscription', merchant: 'OpenAI', amortizationStart: null, amortizationEnd: null, dailyImpact: null, voidedAt: null, voidReason: null, createdAt: '', updatedAt: '' };
 function setup(overrides: Partial<Transaction> = {}) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: transaction }), { status: 200 }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
+  client.setQueryData([...keys.transactions,new URLSearchParams({kind:'expense',search:'',limit:'25',offset:'0',sort:'occurredAt',direction:'desc'}).toString()],{data:[transaction],meta:{total:1}});
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => Promise.resolve(new Response(JSON.stringify({ data: String(url).includes('?') ? [transaction] : transaction, meta: {total:1} }), { status: 200 })));
   render(<QueryClientProvider client={client}><TransactionDialog transaction={{ ...transaction, ...overrides }} accounts={[account, { ...account, id: 'cash', name: 'Cash', kind: 'cash' }, { ...account, id: 'usd', name: 'USD account', currency: 'USD' }]} categories={[]} timezone="Europe/Sofia" onClose={vi.fn()} /></QueryClientProvider>);
   return fetchMock;
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 async function save(fetchMock: ReturnType<typeof setup>) {
   await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-  expect(fetchMock.mock.calls).toHaveLength(1);
-  expect(fetchMock.mock.calls[0][1]?.method).toBe('PATCH');
-  return JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+  await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true));
+  const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
+  expect(patches).toHaveLength(1);
+  return JSON.parse(String(patches[0]?.[1]?.body));
 }
 describe('editing expense treatment', () => {
+  it('shows Happy as a 20 euro personal expense while preserving the paid and returned amounts', () => {
+    render(<TransactionRow item={{ ...transaction, description: 'Happy', amount: '100', netExpenseAmount: '20', reimbursedAmount: '80' }} timezone="Europe/Sofia" accounts={[account]} categories={[]} onVoid={vi.fn()} />);
+    expect(screen.getByText('Happy')).toBeInTheDocument();
+    expect(screen.getByText('−€20.00')).toBeInTheDocument();
+    expect(screen.getByText('Paid €100.00 · received back €80.00')).toBeInTheDocument();
+  });
+  it('reclassifies imported income as money paid back without adding another entry', async () => {
+    const fetchMock = setup({ kind: 'income', sourceAccountId: null, destinationAccountId: 'a' });
+    await userEvent.selectOptions(screen.getByLabelText('Money received as'), 'reimbursement');
+    expect(screen.getByText(/the repayment is not income/)).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Save changes'})).toBeDisabled();
+    await userEvent.selectOptions(screen.getByLabelText('Money back for'),'t');
+    expect(await save(fetchMock)).toMatchObject({ kind: 'reimbursement', amount: '20.00', sourceAccountId: null, destinationAccountId: 'a', originalTransactionId: 't' });
+  });
   it('turns a bank withdrawal into a transfer to cash', async () => {
     const fetchMock = setup({ categoryId: 'food', description: 'Cash withdrawal' });
     await userEvent.selectOptions(screen.getByLabelText('Expense type'), 'transfer');

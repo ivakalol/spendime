@@ -220,7 +220,8 @@ export async function manualMatchCandidates(client: pg.PoolClient, bankTransacti
     JOIN bank_account_links l ON l.id=bt.bank_account_link_id
     JOIN users u ON u.id=bt.user_id
     JOIN transactions t ON t.user_id=bt.user_id AND t.amount=bt.amount AND t.currency=bt.currency
-      AND t.kind=CASE bt.direction WHEN 'debit' THEN 'expense'::transaction_kind ELSE 'income'::transaction_kind END
+      AND ((bt.direction='debit' AND t.kind='expense')
+        OR (bt.direction='credit' AND t.kind IN ('income','refund','reimbursement')))
       AND t.method IN ('standard','amortized') AND t.voided_at IS NULL
       AND (t.occurred_at AT TIME ZONE u.timezone)::date BETWEEN
         bt.occurred_on-$2::integer AND bt.occurred_on+$2::integer

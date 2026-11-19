@@ -268,7 +268,8 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
       expect.objectContaining({entry_reference:'fx-in',amount:'60.0000',currency:'BGN',kind:'adjustment'}),
     ]));
     const dashboard=await a.get(`/api/dashboard?timeframe=daily&anchor=${today}`).expect(200);
-    expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualSpending)).toBe(22);
+    // The earlier 7 EUR taxi entry was converted to a transfer to cash.
+    expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='EUR')?.actualSpending)).toBe(15);
     expect(Number(dashboard.body.data.cashFlow.find((x:any)=>x.currency==='BGN')?.actualIncome)).toBe(0);
   });
 
@@ -421,8 +422,7 @@ describe('banking sandbox lifecycle and financial integrity',()=>{
     await a.post(`/api/banking/connections/${id}/disconnect`).set('Origin',origin).expect(204);
     await a.delete(`/api/banking/connections/${id}/data`).set('Origin',origin).expect(204);
     await withUserTransaction(pool,userA,client=>client.query(`UPDATE users SET timezone='UTC' WHERE id=$1`,[userA]));
-  });
-
+  }, 60_000); // The 450-row import performs real PostgreSQL round trips.
   it('automatically matches only one safe manual entry and keeps user fields',async()=>{
     const categoryId=(await a.get('/api/categories').expect(200)).body.data.find((x:any)=>x.name==='Food').id;
     const otherAccount=(await a.post('/api/accounts').send({name:'Unrelated account',kind:'checking',currency:'EUR',openingBalance:'0'}).expect(201)).body.data.id;

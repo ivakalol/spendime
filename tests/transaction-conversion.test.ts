@@ -5,12 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { errorHandler } from '../src/server/errors.js';
 import { createTransactionsRouter } from '../src/server/domains/transactions/routes.js';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), edit: vi.fn(), createRule: vi.fn(), query: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), edit: vi.fn(), create: vi.fn(), createRule: vi.fn(), query: vi.fn(), release: vi.fn() }));
 vi.mock('../src/server/middleware/authenticate.js', () => ({ requireAuthentication: () => (req: any, _res: any, next: () => void) => {
   req.auth = { user: { id: 'user' } }; next();
 } }));
 vi.mock('../src/server/domains/transactions/repository.js', () => ({ getTransaction: mocks.get, listTransactions: vi.fn(), voidTransaction: vi.fn() }));
-vi.mock('../src/server/domains/transactions/service.js', () => ({ editTransaction: mocks.edit, createTransaction: vi.fn() }));
+vi.mock('../src/server/domains/transactions/service.js', () => ({ editTransaction: mocks.edit, createTransaction: mocks.create }));
 vi.mock('../src/server/domains/recurring/repository.js', () => ({ createRule: mocks.createRule, getRule: vi.fn(), listRules: vi.fn(), updateRule: vi.fn(), disableRule: vi.fn() }));
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -25,12 +25,28 @@ const app = express(); app.use(express.json()); app.use('/transactions', createT
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.get.mockResolvedValue(current);
+  mocks.create.mockImplementation(async (_client, _userId, input) => ({ id, ...input }));
   mocks.createRule.mockResolvedValue({ id: ruleId });
   mocks.edit.mockImplementation(async (_client, _id, input) => ({ id, ...input }));
   mocks.query.mockImplementation(async (sql: string) => sql.startsWith('SELECT id,currency')
     ? { rowCount: 1, rows: [{ id: accountId, currency: 'EUR', is_archived: false }] } : { rowCount: 0, rows: [] });
 });
 describe('transaction conversion API', () => {
+  const receipt = { kind: 'reimbursement', originalTransactionId: id, destinationAccountId: accountId, amount: '80', currency: 'EUR', occurredAt: '2026-01-31T12:00:00Z' };
+  it('accepts a new reimbursement with a destination account', async () => {
+    const response = await request(app).post('/transactions').send(receipt).expect(201);
+    expect(response.body.data).toMatchObject({ ...receipt, sourceAccountId: null, method: 'standard' });
+  });
+  it.each([{ originalTransactionId: null }, { destinationAccountId: null }, { sourceAccountId: accountId }, { method: 'amortized' }, { method: 'recurring', recurringRuleId: ruleId }])('rejects invalid reimbursement account or method: %j', async changes => {
+    await request(app).post('/transactions').send({ ...receipt, ...changes }).expect(400);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it('accepts reclassification of income without duplicating the transaction', async () => {
+    mocks.get.mockResolvedValue({ ...current, kind: 'income', sourceAccountId: null, destinationAccountId: accountId });
+    await request(app).patch(`/transactions/${id}`).send({ kind: 'reimbursement', originalTransactionId: id }).expect(200);
+    expect(mocks.edit).toHaveBeenCalledWith(client, id, expect.objectContaining({ kind: 'reimbursement', destinationAccountId: accountId, sourceAccountId: null }));
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
   it('creates and links a schedule inside the transaction update', async () => {
     const response = await request(app).patch(`/transactions/${id}`).send({ method: 'recurring', paymentSchedule: schedule }).expect(200);
     expect(response.body.data).toMatchObject({ method: 'recurring', recurringRuleId: ruleId, amount: '20.2000', sourceAccountId: accountId });

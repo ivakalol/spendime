@@ -16,6 +16,20 @@ beforeEach(() => {
   client = { query } as unknown as pg.PoolClient;
 });
 describe('expense to transfer conversion', () => {
+  it.each(['income', 'reimbursement'] as const)('allows reclassification from %s to the other receipt type', async kind => {
+    const receipt: TransactionWrite = { ...expense, kind, sourceAccountId: null, destinationAccountId: 'bank' };
+    mocks.get.mockResolvedValueOnce({ ...receipt, id: 't', bankSynced: true });
+    query.mockResolvedValue({ rowCount: 1, rows: [{ id: 'bank', currency: 'EUR', is_archived: false }] });
+    const input: TransactionWrite = { ...receipt, kind: kind === 'income' ? 'reimbursement' : 'income' };
+    await editTransaction(client, 't', input);
+    expect(mocks.update).toHaveBeenCalledWith(client, 't', input);
+  });
+  it('rejects an income category on money paid back', async () => {
+    mocks.get.mockResolvedValueOnce({ ...expense, kind: 'income', sourceAccountId: null, destinationAccountId: 'bank' });
+    query.mockImplementation(async (sql: string) => sql.includes('FROM categories') ? { rows: [{ kind: 'income', is_archived: false }] } : { rowCount: 1, rows: [{ id: 'bank', currency: 'EUR', is_archived: false }] });
+    await expect(editTransaction(client, 't', { ...expense, kind: 'reimbursement', sourceAccountId: null, destinationAccountId: 'bank', categoryId: 'salary' })).rejects.toMatchObject({ code: 'related_resource_not_found' });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
   it('updates the existing transaction with both account references', async () => {
     await editTransaction(client, 't', transfer);
     expect(mocks.update).toHaveBeenCalledWith(client, 't', transfer);

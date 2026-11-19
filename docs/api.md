@@ -83,7 +83,7 @@ List query parameters:
 
 Sort fields map through a fixed server whitelist; no user SQL fragment is used.
 
-Kinds are `expense`, `income`, `transfer`, `asset_purchase`, `asset_sale`,
+Kinds are `expense`, `income`, `refund`, `reimbursement`, `transfer`, `asset_purchase`, `asset_sale`,
 `liability_drawdown`, `liability_payment`, and `adjustment`. Methods are
 `standard`, `amortized`, and `recurring`.
 
@@ -299,3 +299,31 @@ npm run build
 
 The integration tests use PostgreSQL, exercise cross-user RLS, and remove only
 their uniquely identified test records.
+
+## Money paid back
+
+Use `kind: "reimbursement"`, `method: "standard"`, a destination account and
+a positive amount. You must set `originalTransactionId` to the exact expense being repaid.
+The expense must belong to the same user, be active and use the same currency.
+Multiple partial repayments are supported; their active total cannot exceed
+the original expense. Validation locks the original expense to prevent concurrent
+repayments from exceeding it.
+
+The original `amount` remains the bank debit. Responses include
+`reimbursedAmount` and `netExpenseAmount`: Happy 100 minus 80 repaid = 20 of
+personal spending. The repayment inherits the original category dynamically.
+Reports and amortized utility costs use the remaining expense in its original
+period. The repayment is not deducted again in its receipt period. Account
+balances and net cash flow retain the actual bank movement dates and amounts.
+Legacy unlinked reimbursements keep their previous receipt-date accounting
+until linked. Creating or editing reimbursements through the API requires a link.
+
+An expense with active repayments cannot be voided, converted, changed to another
+currency, or reduced below its returned total. Edit or void the repayments first.
+Changing or voiding a repayment immediately recalculates the original expense.
+
+Income can be reclassified as a reimbursement and linked without creating a
+duplicate. Clear `originalTransactionId` when changing back to income.
+`GET /api/transactions?kind=expense&search=Happy` searches description and merchant;
+normal pagination applies. `GET /api/transactions?kind=reimbursement` lists repayments.
+Bank reconciliation can match manually recorded repayments to incoming credits.

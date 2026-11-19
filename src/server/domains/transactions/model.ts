@@ -1,9 +1,10 @@
 export interface TransactionWrite {
-  kind: 'expense' | 'income' | 'refund' | 'transfer' | 'asset_purchase' | 'asset_sale' |
+  kind: 'expense' | 'income' | 'refund' | 'reimbursement' | 'transfer' | 'asset_purchase' | 'asset_sale' |
     'liability_drawdown' | 'liability_payment' | 'adjustment';
   method: 'standard' | 'amortized' | 'recurring';
   sourceAccountId: string | null;
   destinationAccountId: string | null;
+  originalTransactionId?: string | null;
   categoryId: string | null;
   assetId: string | null;
   liabilityId: string | null;
